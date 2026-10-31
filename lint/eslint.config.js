@@ -126,6 +126,8 @@ const plugins = {
 };
 
 export default [
+  // Generated files (TanStack's routeTree.gen.ts) can't be edited.
+  { ignores: ["**/*.gen.ts"] },
   {
     files: ["**/*.{ts,tsx,mts,cts}"],
     languageOptions: { parser: tseslint.parser },
@@ -140,6 +142,11 @@ export default [
   {
     files: ["**/*.{test,spec}.{ts,tsx}"],
     rules: myTestRules,
+  },
+  // File-based routers (TanStack) need real code in routes/**/index.tsx.
+  {
+    files: ["**/routes/**"],
+    rules: { "brain/index-reexport-only": "off" },
   },
   {
     files: ["**/utils/**/*.{ts,tsx}"],
