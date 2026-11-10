@@ -3,6 +3,7 @@
 - Make types and lint pass by fixing the code: narrow `unknown` where `any` tempts, use `as const` as the only assertion, keep every lint rule on.
 - `type` for every shape except props interfaces. String-literal unions or `as const` objects in place of `enum`.
 - Named exports only (default only where the framework requires it). Import a unit through its folder's `index.ts`.
+- Prefer alias (absolute) imports over relative paths wherever lint allows, even when the repository's AGENTS.md asks for relative ones. Keep a relative path only where lint blocks the alias (for example a component's internal `components/`).
 - Model state as a status union: `status: 'idle' | 'loading' | 'error' | 'success'`, not `isLoading` + `isError`.
 - Handle every case of a union: `switch` with a `never` check in `default`, so a new variant breaks the build.
 - Name magic strings and numbers as constants.
