@@ -20,6 +20,7 @@ import {
   findSpaceOnBranch, findAgentFor, focusAgent, startSkill,
 } from "./actions.js";
 
+const NO_MENU_ROW = -1;
 const icon = (name) => `mods/hub/icons/${name}.svg`;
 
 const STORE = {
@@ -192,7 +193,8 @@ export default class Hub extends View {
       this.menuSearch = InputState.new({ placeholder: "Search" });
       this.menuSearch.on("change", (_e, cx) => { this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0; cx.notify(); });
       this.menuItems = [];
-      this.menuIndex = 0;
+      // A skill menu opens with no active row, so nothing looks preselected; ↑/↓ picks one.
+      this.menuIndex = props().menu.skills ? NO_MENU_ROW : 0;
       this.menuListOffset = 0;
       this.menuHandle = cx.focus_handle();
       this.menuScroll = ScrollHandle.new();
