@@ -42,14 +42,20 @@ export const shortSkill = (skill) => skill.replace(/^gh44-/, "");
 export const getDefaultGithubSkill = ({ pr, login }) => (login && pr.author === login ? "gh44-address-review" : "gh44-code-review");
 
 // target: { ref (what the skill gets), prRef? (for PR skills), label (tab name prefix),
-//   branch?, folder?, main? (the repo's main checkout), worktree? (an existing checkout of the branch) }
+//   branch?, folder?, main? (the repo's main checkout), worktree? (an existing checkout of the branch),
+//   space? (a space already open on the branch) }
 // isBackground: open the tab without switching to it (reviews). isWorktree: in the ticket's worktree.
 export function startSkill({ skill, target, isWorktree = false, isBackground = false }) {
   const ref = PR_SKILLS.includes(skill) && target.prRef ? target.prRef : target.ref;
   const prompt = `/${skill} ${ref}`;
   const name = `${target.label} ${shortSkill(skill)}`;
   const space = spaces().find((s) => s.active);
-  if (isWorktree && target.branch && target.main) {
+  if (isWorktree && target.space) {
+    run("tab.new", { name, space: target.space, folder: target.worktree, argv: ["claude", prompt], focus: !isBackground });
+    return;
+  }
+  // An existing worktree needs no main checkout; a new one is made from it.
+  if (isWorktree && (target.worktree || (target.branch && target.main))) {
     void startInWorktree({ target, name, prompt });
     return;
   }

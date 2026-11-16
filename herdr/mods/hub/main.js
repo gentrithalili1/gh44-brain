@@ -44,7 +44,7 @@ const MENU_ROW_HEIGHT = 30;
 const MENU_PADDING = 12;
 const MENU_SEARCH_HEIGHT = 38;
 const MENU_MAX_HEIGHT = 420;
-// The line above "In new worktree": 1px plus 3px above and below.
+// A menu separator line: 1px plus 3px above and below.
 const MENU_SEPARATOR_HEIGHT = 7;
 const MENU_TITLE_HEIGHT = 26;
 // Where a ticket's first run goes, asked until the ticket has a worktree.
@@ -195,7 +195,6 @@ function openMenu(menu) {
 const NEVER_ASK_SKILLS = ["gh44-address-review"];
 const shouldAskWhere = ({ skill, target }) => !NEVER_ASK_SKILLS.includes(skill) && Boolean(target.main && target.branch && !target.worktree);
 
-// A ticket with a worktree runs there. Without one, its ▾ menu opens on the "where" step.
 function startTicketSkill({ skill, menu }) {
   if (shouldAskWhere({ skill, target: menu.target })) {
     openMenu({ ...menu, askSkill: skill });
@@ -759,10 +758,13 @@ export default class Hub extends View {
     const colors = palette(theme());
     const skill = getDefaultLinearSkill(issue);
     const stage = getIssueStage(issue);
-    // The focused repo's worktrees, else a space already on the ticket's branch (it may be in another repo).
-    const worktree = (cache.get(`wt|${this.repoId}`)?.result.items ?? []).find((w) => w.branch === issue.branch)?.path
-      ?? (issue.branch ? spaces().find((sp) => sp.branch === issue.branch)?.folder : undefined);
-    const target = { ref: issue.identifier, prRef: issue.prUrl, label: issue.identifier, branch: issue.branch, main: this.repoMain(), ...(worktree ? { worktree } : {}) };
+    // A space already on the ticket's branch (it may be in another repo), else the focused repo's worktrees.
+    const space = issue.branch ? spaces().find((sp) => sp.branch === issue.branch) : undefined;
+    const worktree = space?.folder ?? (cache.get(`wt|${this.repoId}`)?.result.items ?? []).find((w) => w.branch === issue.branch)?.path;
+    const target = {
+      ref: issue.identifier, prRef: issue.prUrl, label: issue.identifier, branch: issue.branch, main: this.repoMain(),
+      ...(worktree ? { worktree } : {}), ...(space ? { space: space.id } : {}),
+    };
     const agent = findAgentFor({ label: issue.identifier, branch: issue.branch });
     const menu = { skills: LINEAR_SKILLS, target, isTicket: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] };
     const primary = this.primaryFor({ agent, branch: issue.branch, skill, target, isWorktree: Boolean(worktree), canAsk: shouldAskWhere({ skill, target }), start: () => startTicketSkill({ skill, menu }) });
@@ -901,15 +903,12 @@ export default class Hub extends View {
           cx.notify();
           return;
         }
-        pendingStart = { skill, target: menu.target, isWorktree: isWorktree && Boolean(menu.isTicket), isBackground: Boolean(menu.isBackground) };
-        closeOverlay(props().overlay);
-        run("hub.start");
+        this.queueStart({ skill, target: menu.target, isWorktree: isWorktree && Boolean(menu.isTicket), isBackground: Boolean(menu.isBackground) });
       },
     }));
-    const separator = (id) => div().id(`sep-${id}`).h(1).flex_none().my(3).bg(t.border);
     const links = menu.links ?? [];
     const linkRows = links.length > 0
-      ? [separator("links"), ...links.map((link) => this.menuRow({
+      ? [this.menuSeparator("links"), ...links.map((link) => this.menuRow({
         id: `link-${link.id}`, label: link.label, actionIcon: link.icon, iconColor: t.muted,
         onClick: (cx) => { cx.open_url(link.url); closeOverlay(props().overlay); },
       }))]
@@ -928,12 +927,19 @@ export default class Hub extends View {
     });
     return [title, ...WHERE_OPTIONS.map((o) => this.menuRow({
       id: `where-${o.id}`, label: o.label, actionIcon: o.icon,
-      onClick: () => {
-        pendingStart = { skill, target, isWorktree: o.isWorktree };
-        closeOverlay(props().overlay);
-        run("hub.start");
-      },
-    })), div().id("sep-back").h(1).flex_none().my(3).bg(t.border), back];
+      onClick: () => this.queueStart({ skill, target, isWorktree: o.isWorktree }),
+    })), this.menuSeparator("back"), back];
+  }
+
+  menuSeparator(id) {
+    return div().id(`sep-${id}`).h(1).flex_none().my(3).bg(theme().border);
+  }
+
+  // The panel runs the start (`hub.start`): this popup closes, which would cancel its async work.
+  queueStart(start) {
+    pendingStart = start;
+    closeOverlay(props().overlay);
+    run("hub.start");
   }
 
   menuSearchBox() {
