@@ -685,7 +685,7 @@ export default class Hub extends View {
       actions: [
         { id: `open-${pr.number}`, name: "external", tip: "Open on GitHub (o)", onClick: (_e, cx) => cx.open_url(pr.url) },
       ],
-      menu: { skills: GITHUB_SKILLS, current: skill, target, isBackground: true },
+      menu: { skills: GITHUB_SKILLS, target, isBackground: true },
     });
     return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
   }
@@ -768,7 +768,7 @@ export default class Hub extends View {
       actions: [
         { id: `open-${issue.id}`, name: "external", tip: "Open in Linear (o)", onClick: (_e, cx) => cx.open_url(issue.url) },
       ],
-      menu: { skills: LINEAR_SKILLS, current: skill, target, hasWorktreeToggle: true },
+      menu: { skills: LINEAR_SKILLS, target, hasWorktreeToggle: true },
     });
     return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isWorktree: isWorktree && Boolean(target.main) }) };
   }
@@ -886,7 +886,7 @@ export default class Hub extends View {
     const t = theme();
     const isWorktree = menu.hasWorktreeToggle && isWorktreeTicket(menu.target.ref);
     const rows = menu.skills.map((skill) => this.menuRow({
-      id: `skill-${skill}`, label: skill, isChecked: skill === menu.current,
+      id: `skill-${skill}`, label: skill,
       onClick: () => {
         pendingStart = { skill, target: menu.target, isWorktree: menu.hasWorktreeToggle && isWorktree && Boolean(menu.target.main), isBackground: Boolean(menu.isBackground) };
         closeOverlay(props().overlay);
