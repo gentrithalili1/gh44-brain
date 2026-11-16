@@ -831,11 +831,13 @@ export default class Hub extends View {
     return index === this.menuIndex;
   }
 
-  menuRow({ id, label, isChecked, onClick, scroll = null }) {
+  // An action row gets a leading `actionIcon`; a choice row gets a trailing tick when `isChecked`.
+  menuRow({ id, label, actionIcon = null, isChecked, onClick, scroll = null }) {
     const t = theme();
     const isActive = this.registerMenuItem({ onClick, scroll });
     return h_flex().id(id).h(MENU_ROW_HEIGHT).flex_none().px(9).gap(8).items_center().rounded(6).cursor_pointer()
       .bg(isActive ? t.selected : t.popover).text_color(t.foreground).hover((s) => s.bg(t.selected)).on_click((_e, cx) => onClick(cx))
+      .when(Boolean(actionIcon), (el) => el.child(svg(icon(actionIcon)).size(11).flex_none().text_color(t.accent)))
       .child(div().flex_1().truncate().child(label))
       .when(isChecked, (el) => el.child(svg(icon("check")).size(13).flex_none().text_color(t.accent)));
   }
@@ -885,10 +887,11 @@ export default class Hub extends View {
   skillRows(menu) {
     const t = theme();
     const isWorktree = menu.hasWorktreeToggle && isWorktreeTicket(menu.target.ref);
+    const isNewWorktree = isWorktree && Boolean(menu.target.main);
     const rows = menu.skills.map((skill) => this.menuRow({
-      id: `skill-${skill}`, label: skill,
+      id: `skill-${skill}`, label: skill, actionIcon: isNewWorktree ? "branch" : "play",
       onClick: () => {
-        pendingStart = { skill, target: menu.target, isWorktree: menu.hasWorktreeToggle && isWorktree && Boolean(menu.target.main), isBackground: Boolean(menu.isBackground) };
+        pendingStart = { skill, target: menu.target, isWorktree: isNewWorktree, isBackground: Boolean(menu.isBackground) };
         closeOverlay(props().overlay);
         run("hub.start");
       },
