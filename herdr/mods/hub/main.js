@@ -520,7 +520,7 @@ export default class Hub extends View {
     const isSelected = this.selected[tab] === id;
     const isHovered = this.hovered === id;
     return h_flex().id(`row-${id}`).flex_none().px(10).py(7).gap(8).items_center().border_b(1).border_color(t.border)
-      .bg(isSelected ? t.selected : t.background).hover((s) => s.bg(isSelected ? t.selected : t.hover))
+      .bg(isSelected ? t.selected : t.background).hover((s) => s.bg(isSelected ? t.selected : t.surface))
       .on_hover((hovered, cx) => {
         if (hovered) this.hovered = id;
         else if (this.hovered === id) this.hovered = null;
