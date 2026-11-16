@@ -13,7 +13,7 @@ With the Herdr app open:
 It:
 
 1. Copies the `gh44-dark` and `gh44-light` Herdr themes from your `gh44-theme` repo (`gh44-theme/herdr/`). Clone it next to `gh44-brain`, or this step is skipped. The layout picks `gh44-dark` for dark mode and `paper` for light.
-2. Links the mods in `mods/` into `~/.config/herdr-app/mods`, so edits here are live.
+2. Links the mods in `mods/` into `~/.config/herdr-app/mods`, so edits here are live. Then builds `gh44-files`: a fresh clone of Herdr's `files` panel with the gh44 code colors from `gh44-theme/herdr/gh44-syntax.js`.
 3. Copies `keys.json`, `settings.json` and `layouts/gh44-herdr.json`, and switches to the layout. A different existing file is kept as `<name>.bak-<time>`.
 4. Runs the installer of every mod in `plugins.txt`.
 5. Fails if `herdr-app status` reports errors.

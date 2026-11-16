@@ -7,6 +7,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 LAYOUT=gh44-herdr
+# Mods install.sh builds itself, so they need no recording.
+BUILT_MODS="gh44-files"
 
 mkdir -p "$HERE/layouts"
 cp "$APP_HOME/layouts/$LAYOUT.json" "$HERE/layouts/$LAYOUT.json"
@@ -21,6 +23,7 @@ for dir in "$APP_HOME"/mods/*/; do
   name=$(basename "$dir")
   [ -L "${dir%/}" ] && continue
   grep -qxF "$name" <<< "$shipped" && continue
+  grep -qxF "$name" <<< "$(tr ' ' '\n' <<< "$BUILT_MODS")" && continue
   match=
   for prefix in $prefixes; do
     case $name in "$prefix" | "$prefix"-*) match=1 ;; esac

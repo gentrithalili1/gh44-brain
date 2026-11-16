@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sets up the Herdr app as recorded here: gh44 themes, own mods, keys, settings,
+# Sets up the Herdr app as recorded here: gh44 themes, own mods, gh44-files, keys, settings,
 # the gh44-herdr layout and every plugin in plugins.txt. Safe to run again.
 # The Herdr app must be open.
 set -euo pipefail
@@ -48,6 +48,22 @@ for mod in "$HERE"/mods/*/; do
   herdr-app check "$target" > /dev/null || die "herdr-app check failed for $(basename "$mod")"
 done
 echo "mods: $(cd "$HERE/mods" && ls -d */ | tr -d / | tr '\n' ' ')"
+
+# 2b. gh44-files: Herdr's files panel with gh44 code colors, rebuilt from the shipped
+# mod on every run so it follows upstream. Without gh44-theme it keeps Herdr's colors.
+FILES_MOD="$APP_HOME/mods/gh44-files"
+rm -rf "$FILES_MOD"
+herdr-app do mod.clone '{"name":"files","as":"gh44-files"}' > /dev/null || die "could not clone the files mod"
+if [ -f "$THEME_REPO/herdr/gh44-syntax.js" ]; then
+  cp "$THEME_REPO/herdr/gh44-syntax.js" "$FILES_MOD/"
+  sed -i '' -e '1a\
+import { gh44Syntax } from "./gh44-syntax.js";' -e 's/syntax: { keyword: t.ansi5/syntax: gh44Syntax(t) ?? { keyword: t.ansi5/' "$FILES_MOD/main.js"
+  grep -q 'gh44Syntax(t)' "$FILES_MOD/main.js" || die "gh44-files: the files mod changed, update the patch in install.sh"
+  echo "gh44-files: files panel with gh44 code colors"
+else
+  echo "gh44-files: Herdr's code colors, clone gh44-theme next to gh44-brain for gh44 ones" >&2
+fi
+herdr-app check "$FILES_MOD" > /dev/null || die "herdr-app check failed for gh44-files"
 
 # 3. Keys, settings and the layout.
 place "$HERE/keys.json" "$APP_HOME/keys.json"
