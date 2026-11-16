@@ -438,10 +438,17 @@ export default class Hub extends View {
 
   // ---------- shared pieces ----------
 
-  iconButton({ id, name, tip, onClick }) {
+  // A button's hover sits one step above its row's own hover or selected background.
+  buttonHover({ isOnSelected = false } = {}) {
     const t = theme();
+    return isOnSelected ? t.border : t.raised;
+  }
+
+  iconButton({ id, name, tip, onClick, isOnSelected = false }) {
+    const t = theme();
+    const hoverBg = this.buttonHover({ isOnSelected });
     return div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.bg(t.raised).text_color(t.foreground))
+      .text_color(t.muted).hover((s) => s.bg(hoverBg).text_color(t.foreground))
       .tooltip(tip).on_mouse_down("left", stop).on_click((e, cx) => { cx.stop_propagation(); onClick(e, cx); })
       .child(svg(icon(name)).size(13));
   }
@@ -478,18 +485,19 @@ export default class Hub extends View {
   }
 
   // [▶ plan | ▾]: the main part runs the row's next step, the chevron picks another.
-  splitButton({ id, primary, menu }) {
+  splitButton({ id, primary, menu, isOnSelected = false }) {
     const t = theme();
+    const hoverBg = this.buttonHover({ isOnSelected });
     return h_flex().id(id).h(24).flex_none().items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_size(12)
       .child(h_flex().id(`${id}-run`).h_full().pl(7).pr(8).gap(5).items_center().rounded_l(6).cursor_pointer()
-        .text_color(t.foreground).hover((s) => s.bg(t.hover)).tooltip(primary.tip)
+        .text_color(t.foreground).hover((s) => s.bg(hoverBg)).tooltip(primary.tip)
         .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); primary.run(); })
         .child(svg(icon(primary.icon)).size(11).text_color(t.accent))
         .child(primary.label)
         .when(Boolean(primary.worktreeBadge), (el) => el.child(div().px(4).rounded(4).bg(t.selected).text_color(t.accent).text_size(10.5).child(primary.worktreeBadge))))
       .child(div().w(1).h(14).bg(t.border))
       .child(div().id(`${id}-more`).h_full().px(5).flex().items_center().rounded_r(6).cursor_pointer()
-        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .text_color(t.muted).hover((s) => s.bg(hoverBg).text_color(t.foreground))
         .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); openMenu(menu); })
         .child(svg(icon("chevron")).size(12)));
   }
@@ -532,8 +540,8 @@ export default class Hub extends View {
             .child(div().text_color(colors.danger).child(`−${diff.deletions}`))))
           .children(tags.map((tg) => this.tag(tg)))))
       .child(h_flex().flex_none().gap(2).items_center()
-        .when(isHovered || isSelected, (el) => el.children(actions.map((a) => this.iconButton(a))))
-        .child(this.splitButton({ id: `run-${id}`, primary, menu })));
+        .when(isHovered || isSelected, (el) => el.children(actions.map((a) => this.iconButton({ ...a, isOnSelected: isSelected }))))
+        .child(this.splitButton({ id: `run-${id}`, primary, menu, isOnSelected: isSelected })));
   }
 
   message({ title, body, action }) {
