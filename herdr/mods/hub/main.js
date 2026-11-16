@@ -175,8 +175,8 @@ function openMenu(menu) {
   const hasSearch = !menu.skills && !menu.isFilterList;
   const rows = menu.isFilterList
     ? groups.length + 1
-    : (menu.skills?.length ?? 0) + groupRows + (menu.hasWorktreeToggle ? 1 : 0);
-  const separators = menu.hasWorktreeToggle ? MENU_SEPARATOR_HEIGHT : 0;
+    : (menu.skills?.length ?? 0) + groupRows + (menu.hasWorktreeToggle ? 1 : 0) + (menu.links?.length ?? 0);
+  const separators = (Number(Boolean(menu.hasWorktreeToggle)) + Number(Boolean(menu.links?.length))) * MENU_SEPARATOR_HEIGHT;
   const height = Math.min(MENU_MAX_HEIGHT, Math.max(1, rows) * MENU_ROW_HEIGHT + separators + MENU_PADDING + (hasSearch ? MENU_SEARCH_HEIGHT : 0));
   if (menu.isFilterList) {
     openOverlay({ mod: "hub", kind: "popup", frame: "none", width: FILTER_POPOVER_WIDTH, height: FILTER_POPOVER_HEIGHT, props: { menu } });
@@ -207,7 +207,6 @@ export default class Hub extends View {
       this.pinned = new Set((menu.groups ?? []).flatMap((def) => [].concat(getFilters(menu.store)[def.field]).map((v) => `${def.field}:${v}`)));
       return;
     }
-    this.hovered = null;
     this.selected = { github: null, linear: null };
     this.visible = { github: [], linear: [] };
     this.isSearchFocused = false;
@@ -444,15 +443,6 @@ export default class Hub extends View {
     return isOnSelected ? t.border : t.raised;
   }
 
-  iconButton({ id, name, tip, onClick, isOnSelected = false }) {
-    const t = theme();
-    const hoverBg = this.buttonHover({ isOnSelected });
-    return div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.bg(hoverBg).text_color(t.foreground))
-      .tooltip(tip).on_mouse_down("left", stop).on_click((e, cx) => { cx.stop_propagation(); onClick(e, cx); })
-      .child(svg(icon(name)).size(13));
-  }
-
   // [Review: me + teams ▾ | search...] like GitHub's search box with its scope picker.
   searchRow({ store, scopeDef, state, defs }) {
     const t = theme();
@@ -512,20 +502,14 @@ export default class Hub extends View {
       .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); cx.open_url(url); });
   }
 
-  // One row shape for both tabs: status icon | title over ref · meta and tags | hover actions + main button.
-  row({ id, status, badge = null, title, isTitleDim, ref, meta, diff = null, tags, actions, primary, menu }) {
+  // One row shape for both tabs: status icon | title over ref · meta and tags | main button.
+  row({ id, status, badge = null, title, isTitleDim, ref, meta, diff = null, tags, primary, menu }) {
     const t = theme();
     const colors = palette(t);
     const tab = currentTab();
     const isSelected = this.selected[tab] === id;
-    const isHovered = this.hovered === id;
     return h_flex().id(`row-${id}`).flex_none().px(10).py(7).gap(8).items_center().border_b(1).border_color(t.border)
       .bg(isSelected ? t.selected : t.background).hover((s) => s.bg(isSelected ? t.selected : t.surface))
-      .on_hover((hovered, cx) => {
-        if (hovered) this.hovered = id;
-        else if (this.hovered === id) this.hovered = null;
-        cx.notify();
-      })
       .on_click((_e, cx) => { this.selected[tab] = id; this.handle.focus(); cx.notify(); })
       .child(div().flex_none().self_start().pt(2).tooltip(status.tip).child(svg(icon(status.icon)).size(14).text_color(status.color)))
       .child(v_flex().flex_1().min_w(0).gap(3)
@@ -539,9 +523,7 @@ export default class Hub extends View {
             .child(div().text_color(colors.success).child(`+${diff.additions}`))
             .child(div().text_color(colors.danger).child(`−${diff.deletions}`))))
           .children(tags.map((tg) => this.tag(tg)))))
-      .child(h_flex().flex_none().gap(2).items_center()
-        .when(isHovered || isSelected, (el) => el.children(actions.map((a) => this.iconButton({ ...a, isOnSelected: isSelected }))))
-        .child(this.splitButton({ id: `run-${id}`, primary, menu, isOnSelected: isSelected })));
+      .child(this.splitButton({ id: `run-${id}`, primary, menu, isOnSelected: isSelected }));
   }
 
   message({ title, body, action }) {
@@ -692,10 +674,7 @@ export default class Hub extends View {
       status: { icon: `ci-${pr.ci}`, color: colors[ci.tone], tip: ci.tip },
       meta: [pr.author, formatAge(pr.createdAt)].filter(Boolean),
       diff: { additions: pr.additions, deletions: pr.deletions },
-      actions: [
-        { id: `open-${pr.number}`, name: "external", tip: "Open on GitHub (o)", onClick: (_e, cx) => cx.open_url(pr.url) },
-      ],
-      menu: { skills: GITHUB_SKILLS, target, isBackground: true },
+      menu: { skills: GITHUB_SKILLS, target, isBackground: true, links: [{ id: "github", label: "Open in GitHub", icon: "github", url: pr.url }] },
     });
     return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
   }
@@ -775,10 +754,7 @@ export default class Hub extends View {
       status: { icon: `state-${stage}`, color: colors[STAGE_STATUS[stage]], tip: issue.state },
       meta: [issue.project, showAssignee ? (issue.assignee ?? UNASSIGNED) : null, issue.labels[0]].filter(Boolean),
       tags: [...this.agentTag(agent), ...(issue.prUrl ? [{ label: `PR #${issue.prUrl.split("/").pop()}`, tone: "quiet", url: issue.prUrl }] : [])],
-      actions: [
-        { id: `open-${issue.id}`, name: "external", tip: "Open in Linear (o)", onClick: (_e, cx) => cx.open_url(issue.url) },
-      ],
-      menu: { skills: LINEAR_SKILLS, target, hasWorktreeToggle: true },
+      menu: { skills: LINEAR_SKILLS, target, hasWorktreeToggle: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] },
     });
     return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isWorktree: isWorktree && Boolean(target.main) }) };
   }
@@ -841,15 +817,15 @@ export default class Hub extends View {
     return index === this.menuIndex;
   }
 
-  // An action row gets a leading `actionIcon`; a choice row gets a trailing tick when `isChecked`.
-  menuRow({ id, label, actionIcon = null, isChecked, onClick, scroll = null }) {
+  // An action row gets a leading `actionIcon`; a choice row (`isChecked` set) gets a leading checkbox.
+  menuRow({ id, label, actionIcon = null, iconColor = null, isChecked = null, onClick, scroll = null }) {
     const t = theme();
     const isActive = this.registerMenuItem({ onClick, scroll });
     return h_flex().id(id).h(MENU_ROW_HEIGHT).flex_none().px(9).gap(8).items_center().rounded(6).cursor_pointer()
       .bg(isActive ? t.selected : t.popover).text_color(t.foreground).hover((s) => s.bg(t.selected)).on_click((_e, cx) => onClick(cx))
-      .when(Boolean(actionIcon), (el) => el.child(svg(icon(actionIcon)).size(11).flex_none().text_color(t.accent)))
-      .child(div().flex_1().truncate().child(label))
-      .when(isChecked, (el) => el.child(svg(icon("check")).size(13).flex_none().text_color(t.accent)));
+      .when(isChecked !== null, (el) => el.child(svg(icon(isChecked ? "checkbox-checked" : "checkbox")).size(14).flex_none().text_color(isChecked ? t.accent : t.dim)))
+      .when(Boolean(actionIcon), (el) => el.child(svg(icon(actionIcon)).size(11).flex_none().text_color(iconColor ?? t.accent)))
+      .child(div().flex_1().truncate().child(label));
   }
 
   handleMenuKey(e, cx) {
@@ -906,9 +882,18 @@ export default class Hub extends View {
         run("hub.start");
       },
     }));
-    if (!menu.hasWorktreeToggle) return rows;
-    return [...rows, div().h(1).flex_none().my(3).bg(t.border),
-      this.menuRow({ id: "skill-worktree", label: "In new worktree", isChecked: isWorktree, onClick: () => setWorktreeTicket({ identifier: menu.target.ref, isOn: !isWorktree }) })];
+    const separator = (id) => div().id(`sep-${id}`).h(1).flex_none().my(3).bg(t.border);
+    const worktreeRows = menu.hasWorktreeToggle
+      ? [separator("worktree"), this.menuRow({ id: "skill-worktree", label: "In new worktree", isChecked: isWorktree, onClick: () => setWorktreeTicket({ identifier: menu.target.ref, isOn: !isWorktree }) })]
+      : [];
+    const links = menu.links ?? [];
+    const linkRows = links.length > 0
+      ? [separator("links"), ...links.map((link) => this.menuRow({
+        id: `link-${link.id}`, label: link.label, actionIcon: link.icon, iconColor: t.muted,
+        onClick: (cx) => { cx.open_url(link.url); closeOverlay(props().overlay); },
+      }))]
+      : [];
+    return [...rows, ...worktreeRows, ...linkRows];
   }
 
   menuSearchBox() {
