@@ -27,8 +27,6 @@ const STORE = {
   tab: "hub.tab",
   github: "hub.github.filters",
   linear: "hub.linear.filters",
-  // { "THU-123": true }: tickets whose ▾ menu has "In new worktree" ticked.
-  worktreeTickets: "hub.linear.worktreeTickets",
 };
 // GitHub filters are kept per repo ("hub.github.filters|<repo id>"); Linear's are shared.
 const isGithubStore = (store) => store.startsWith(STORE.github);
@@ -48,6 +46,12 @@ const MENU_SEARCH_HEIGHT = 38;
 const MENU_MAX_HEIGHT = 420;
 // The line above "In new worktree": 1px plus 3px above and below.
 const MENU_SEPARATOR_HEIGHT = 7;
+const MENU_TITLE_HEIGHT = 26;
+// Where a ticket's first run goes, asked until the ticket has a worktree.
+const WHERE_OPTIONS = [
+  { id: "worktree", label: "New worktree", icon: "branch", isWorktree: true },
+  { id: "here", label: "This space", icon: "play", isWorktree: false },
+];
 const MENU_WIDTH = 240;
 // The Filters popover is frameless and this big; its visible box grows with the open section.
 const FILTER_POPOVER_WIDTH = 260;
@@ -104,7 +108,7 @@ const repoNameCheckedAt = new Map();
 const myTeams = new Map();
 // The merged worktrees the open Clean up dialog is about; its confirm runs `hub.cleanup`.
 let pendingCleanup = null;
-// A skill picked in the ▾ popup; the panel runs it (`hub.start`), since a closed popup's
+// A skill picked in a popup; the panel runs it (`hub.start`), since a closed popup's
 // async work (creating a worktree) would be cancelled.
 let pendingStart = null;
 const session = { login: null, meta: { status: "idle", teams: [], projects: [] } };
@@ -118,8 +122,6 @@ const getFilters = (store) => {
   return f;
 };
 const patchFilters = ({ store, patch }) => setShared(store, { ...getFilters(store), ...patch });
-const isWorktreeTicket = (identifier) => (shared(STORE.worktreeTickets) ?? {})[identifier] === true;
-const setWorktreeTicket = ({ identifier, isOn }) => setShared(STORE.worktreeTickets, { ...(shared(STORE.worktreeTickets) ?? {}), [identifier]: isOn });
 const currentTab = () => (shared(STORE.tab) === "linear" ? "linear" : "github");
 
 // The shown space's repo folder: its focused terminal, else any terminal in the shown tab,
@@ -175,14 +177,31 @@ function openMenu(menu) {
   const hasSearch = !menu.skills && !menu.isFilterList;
   const rows = menu.isFilterList
     ? groups.length + 1
-    : (menu.skills?.length ?? 0) + groupRows + (menu.hasWorktreeToggle ? 1 : 0) + (menu.links?.length ?? 0);
-  const separators = (Number(Boolean(menu.hasWorktreeToggle)) + Number(Boolean(menu.links?.length))) * MENU_SEPARATOR_HEIGHT;
-  const height = Math.min(MENU_MAX_HEIGHT, Math.max(1, rows) * MENU_ROW_HEIGHT + separators + MENU_PADDING + (hasSearch ? MENU_SEARCH_HEIGHT : 0));
+    : (menu.skills?.length ?? 0) + groupRows + (menu.links?.length ?? 0);
+  const separators = Number(Boolean(menu.links?.length)) * MENU_SEPARATOR_HEIGHT;
+  const listHeight = Math.max(1, rows) * MENU_ROW_HEIGHT + separators;
+  // A ticket's menu can switch in place to "where" (title, Back, the options), so it fits both.
+  const askHeight = menu.isTicket ? MENU_TITLE_HEIGHT + (WHERE_OPTIONS.length + 1) * MENU_ROW_HEIGHT + MENU_SEPARATOR_HEIGHT : 0;
+  const height = Math.min(MENU_MAX_HEIGHT, Math.max(listHeight, askHeight) + MENU_PADDING + (hasSearch ? MENU_SEARCH_HEIGHT : 0));
   if (menu.isFilterList) {
     openOverlay({ mod: "hub", kind: "popup", frame: "none", width: FILTER_POPOVER_WIDTH, height: FILTER_POPOVER_HEIGHT, props: { menu } });
     return;
   }
   openOverlay({ mod: "hub", kind: "popup", width: MENU_WIDTH, height, props: { menu: { ...menu, height } } });
+}
+
+// A ticket without a worktree asks where its run goes: a new worktree or this space.
+// Address-review works on an existing PR or local branch, so it never asks.
+const NEVER_ASK_SKILLS = ["gh44-address-review"];
+const shouldAskWhere = ({ skill, target }) => !NEVER_ASK_SKILLS.includes(skill) && Boolean(target.main && target.branch && !target.worktree);
+
+// A ticket with a worktree runs there. Without one, its ▾ menu opens on the "where" step.
+function startTicketSkill({ skill, menu }) {
+  if (shouldAskWhere({ skill, target: menu.target })) {
+    openMenu({ ...menu, askSkill: skill });
+    return;
+  }
+  startSkill({ skill, target: menu.target, isWorktree: Boolean(menu.target.worktree) });
 }
 
 export default class Hub extends View {
@@ -193,15 +212,15 @@ export default class Hub extends View {
       this.menuSearch = InputState.new({ placeholder: "Search" });
       this.menuSearch.on("change", (_e, cx) => { this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0; cx.notify(); });
       this.menuItems = [];
-      // A skill menu opens with no active row, so nothing looks preselected; ↑/↓ picks one.
-      this.menuIndex = props().menu.skills ? NO_MENU_ROW : 0;
+      const isKeyboardMenu = Boolean(props().menu.skills || props().menu.isFilterList);
+      this.resetMenuStep();
       this.menuListOffset = 0;
       this.menuHandle = cx.focus_handle();
       this.menuScroll = ScrollHandle.new();
       this.optionScroll = ScrollHandle.new();
       // Without a search box to type in, the menu itself takes the keyboard for ↑/↓/↵.
-      if (props().menu.skills || props().menu.isFilterList) this.menuHandle.focus();
-      if (!props().menu.skills && !props().menu.isFilterList) this.menuSearch.focus();
+      if (isKeyboardMenu) this.menuHandle.focus();
+      else this.menuSearch.focus();
       // What was picked when the menu opened goes first; the order stays put while clicking.
       const menu = props().menu;
       this.pinned = new Set((menu.groups ?? []).flatMap((def) => [].concat(getFilters(menu.store)[def.field]).map((v) => `${def.field}:${v}`)));
@@ -577,19 +596,17 @@ export default class Hub extends View {
   }
 
   // An agent already on it: open it. Else resume a space on its branch, else start the next skill.
-  primaryFor({ agent, branch, skill, target, isWorktree, isBackground = false }) {
+  primaryFor({ agent, branch, skill, target, isWorktree, isBackground = false, start = null, canAsk = false }) {
     if (agent) return { label: "open", icon: "resume", tip: `Go to ${agent.tab_name} (${AGENT_STATUS[agent.status]?.label ?? agent.status})`, run: () => focusAgent(agent) };
     const space = findSpaceOnBranch(branch);
     if (space) return { label: "resume", icon: "resume", tip: `Go to ${space.name}`, run: () => run("space.select", { id: space.id }) };
-    const worktreeTip = target.worktree
-      ? `/${skill} in this ticket's existing worktree (${target.worktree.split("/").pop()})`
-      : `/${skill} in a NEW worktree: Herdr creates it from origin/main, gh44 setup runs, then Claude starts`;
+    const worktreeTip = `/${skill} in this ticket's worktree (${target.worktree?.split("/").pop()})`;
     return {
       label: shortSkill(skill), icon: isWorktree ? "branch" : "play",
       // Shown on the button, so it is clear before clicking that a worktree is involved.
-      worktreeBadge: isWorktree ? (target.worktree ? "worktree" : "+ worktree") : null,
-      tip: isWorktree ? worktreeTip : isBackground ? `/${skill} in a background tab` : `/${skill} in a new tab here`,
-      run: () => startSkill({ skill, target, isWorktree, isBackground }),
+      worktreeBadge: isWorktree ? "worktree" : null,
+      tip: isWorktree ? worktreeTip : canAsk ? `/${skill}: asks first, new worktree or this space` : isBackground ? `/${skill} in a background tab` : `/${skill} in a new tab here`,
+      run: start ?? (() => startSkill({ skill, target, isWorktree, isBackground })),
     };
   }
 
@@ -739,14 +756,16 @@ export default class Hub extends View {
   // ---------- Linear ----------
 
   issueEntry({ issue, showAssignee }) {
-    const isWorktree = isWorktreeTicket(issue.identifier);
     const colors = palette(theme());
     const skill = getDefaultLinearSkill(issue);
     const stage = getIssueStage(issue);
-    const worktree = (cache.get(`wt|${this.repoId}`)?.result.items ?? []).find((w) => w.branch === issue.branch)?.path;
+    // The focused repo's worktrees, else a space already on the ticket's branch (it may be in another repo).
+    const worktree = (cache.get(`wt|${this.repoId}`)?.result.items ?? []).find((w) => w.branch === issue.branch)?.path
+      ?? (issue.branch ? spaces().find((sp) => sp.branch === issue.branch)?.folder : undefined);
     const target = { ref: issue.identifier, prRef: issue.prUrl, label: issue.identifier, branch: issue.branch, main: this.repoMain(), ...(worktree ? { worktree } : {}) };
     const agent = findAgentFor({ label: issue.identifier, branch: issue.branch });
-    const primary = this.primaryFor({ agent, branch: issue.branch, skill, target, isWorktree: isWorktree && Boolean(target.main) });
+    const menu = { skills: LINEAR_SKILLS, target, isTicket: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] };
+    const primary = this.primaryFor({ agent, branch: issue.branch, skill, target, isWorktree: Boolean(worktree), canAsk: shouldAskWhere({ skill, target }), start: () => startTicketSkill({ skill, menu }) });
     const priority = PRIORITY_OPTIONS.find((p) => p.value === issue.priority);
     const element = this.row({
       id: issue.id, title: issue.title, ref: issue.identifier, primary,
@@ -754,9 +773,9 @@ export default class Hub extends View {
       status: { icon: `state-${stage}`, color: colors[STAGE_STATUS[stage]], tip: issue.state },
       meta: [issue.project, showAssignee ? (issue.assignee ?? UNASSIGNED) : null, issue.labels[0]].filter(Boolean),
       tags: [...this.agentTag(agent), ...(issue.prUrl ? [{ label: `PR #${issue.prUrl.split("/").pop()}`, tone: "quiet", url: issue.prUrl }] : [])],
-      menu: { skills: LINEAR_SKILLS, target, hasWorktreeToggle: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] },
+      menu,
     });
-    return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isWorktree: isWorktree && Boolean(target.main) }) };
+    return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startTicketSkill({ skill: s, menu }) };
   }
 
   groupHeader(group) {
@@ -872,20 +891,22 @@ export default class Hub extends View {
 
   skillRows(menu) {
     const t = theme();
-    const isWorktree = menu.hasWorktreeToggle && isWorktreeTicket(menu.target.ref);
-    const isNewWorktree = isWorktree && Boolean(menu.target.main);
+    const isWorktree = Boolean(menu.target.worktree);
     const rows = menu.skills.map((skill) => this.menuRow({
-      id: `skill-${skill}`, label: skill, actionIcon: isNewWorktree ? "branch" : "play",
-      onClick: () => {
-        pendingStart = { skill, target: menu.target, isWorktree: isNewWorktree, isBackground: Boolean(menu.isBackground) };
+      id: `skill-${skill}`, label: skill, actionIcon: isWorktree ? "branch" : "play",
+      onClick: (cx) => {
+        if (menu.isTicket && shouldAskWhere({ skill, target: menu.target })) {
+          this.askSkill = skill;
+          this.menuIndex = 0;
+          cx.notify();
+          return;
+        }
+        pendingStart = { skill, target: menu.target, isWorktree: isWorktree && Boolean(menu.isTicket), isBackground: Boolean(menu.isBackground) };
         closeOverlay(props().overlay);
         run("hub.start");
       },
     }));
     const separator = (id) => div().id(`sep-${id}`).h(1).flex_none().my(3).bg(t.border);
-    const worktreeRows = menu.hasWorktreeToggle
-      ? [separator("worktree"), this.menuRow({ id: "skill-worktree", label: "In new worktree", isChecked: isWorktree, onClick: () => setWorktreeTicket({ identifier: menu.target.ref, isOn: !isWorktree }) })]
-      : [];
     const links = menu.links ?? [];
     const linkRows = links.length > 0
       ? [separator("links"), ...links.map((link) => this.menuRow({
@@ -893,7 +914,26 @@ export default class Hub extends View {
         onClick: (cx) => { cx.open_url(link.url); closeOverlay(props().overlay); },
       }))]
       : [];
-    return [...rows, ...worktreeRows, ...linkRows];
+    return [...rows, ...linkRows];
+  }
+
+  // The ▾ menu's second step: "Run plan for THU-123 in": New worktree / This space, then Back.
+  askRows({ skill, target }) {
+    const t = theme();
+    const title = div().h(MENU_TITLE_HEIGHT).flex_none().px(9).flex().items_center().text_size(11.5).text_color(t.muted).truncate()
+      .child(`Run ${shortSkill(skill)} for ${target.label} in`);
+    const back = this.menuRow({
+      id: "where-back", label: "Back", actionIcon: "chevron-left", iconColor: t.muted,
+      onClick: (cx) => { this.askSkill = null; this.menuIndex = NO_MENU_ROW; cx.notify(); },
+    });
+    return [title, ...WHERE_OPTIONS.map((o) => this.menuRow({
+      id: `where-${o.id}`, label: o.label, actionIcon: o.icon,
+      onClick: () => {
+        pendingStart = { skill, target, isWorktree: o.isWorktree };
+        closeOverlay(props().overlay);
+        run("hub.start");
+      },
+    })), div().id("sep-back").h(1).flex_none().my(3).bg(t.border), back];
   }
 
   menuSearchBox() {
@@ -942,9 +982,19 @@ export default class Hub extends View {
         .child(total > 0 ? `Clear ${total} filter${total === 1 ? "" : "s"}` : "No filters on")];
   }
 
+  // A ticket's skill without a worktree first asks where to run. The popup view can outlive one
+  // opening, so each new overlay starts on its own step (the skill list, or "where" via askSkill).
+  resetMenuStep() {
+    this.menuOverlay = props().overlay;
+    this.askSkill = props().menu.askSkill ?? null;
+    // A skill menu opens with no active row, so nothing looks preselected; ↑/↓ picks one.
+    this.menuIndex = props().menu.skills && !this.askSkill ? NO_MENU_ROW : 0;
+  }
+
   menuView() {
     const t = theme();
     const menu = props().menu;
+    if (props().overlay !== this.menuOverlay) this.resetMenuStep();
     const groups = menu.groups ?? [];
     this.menuItems = [];
     this.menuListOffset = 0;
@@ -956,8 +1006,8 @@ export default class Hub extends View {
           .children(this.filterListRows(menu)));
     }
     const hasSearch = !menu.skills;
-    const rows = menu.skills
-      ? this.skillRows(menu)
+    const rows = this.askSkill ? this.askRows({ skill: this.askSkill, target: menu.target })
+      : menu.skills ? this.skillRows(menu)
       : groups.filter((def) => groups.length === 1 || def.options.some((o) => this.matchesMenuSearch(o.label))).flatMap((def) => [
         ...(groups.length > 1 ? [div().flex_none().px(9).pt(8).pb(2).text_size(11).font_semibold().text_color(t.muted).child(def.title)] : []),
         ...this.optionRows({ store: menu.store, def, scrollHandle: groups.length === 1 ? this.menuScroll : null }),
