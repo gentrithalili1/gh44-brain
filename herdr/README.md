@@ -12,7 +12,7 @@ With the Herdr app open:
 
 It:
 
-1. Copies the gh44 themes from `gh44-theme` (clone it next to `gh44-brain`).
+1. Copies the `gh44-dark` and `gh44-light` Herdr themes from your `gh44-theme` repo (`gh44-theme/herdr/`). Clone it next to `gh44-brain`, or this step is skipped. The layout picks `gh44-dark` for dark mode and `paper` for light.
 2. Links the mods in `mods/` into `~/.config/herdr-app/mods`, so edits here are live.
 3. Copies `keys.json`, `settings.json` and `layouts/gh44-herdr.json`, and switches to the layout. A different existing file is kept as `<name>.bak-<time>`.
 4. Runs the installer of every mod in `plugins.txt`.
@@ -24,7 +24,7 @@ Safe to run again. It replaces your keys and settings with mine.
 
 | Path | What |
 |---|---|
-| `layouts/gh44-herdr.json` | The layout, with the plugins' changes in it |
+| `layouts/gh44-herdr.json` | The layout, with its theme, panel widths and the plugins' changes |
 | `keys.json`, `settings.json` | Keys and settings |
 | `mods/` | My own mods: `hub` (GitHub and Linear work panel), `my-tabs` (tab bar) |
 | `plugins.txt` | Mods with their own installer: `<owner/repo> <mod prefix>` |
