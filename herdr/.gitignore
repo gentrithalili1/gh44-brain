@@ -1,0 +1,4 @@
+mods/*/gpui-kit.d.ts
+mods/*/jsconfig.json
+mods/*/herdr.d.ts
+.DS_Store
