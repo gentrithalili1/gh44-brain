@@ -78,6 +78,18 @@ grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $1 }' | while read -r repo
   curl -fsSL "https://raw.githubusercontent.com/$repo/main/install.sh" | sh -s -- --app
 done
 
+# 4b. Annotator: code review in the Changes slot. Its own installer builds a Rust helper from a
+# clone it later updates in place, so the clone lives beside gh44-brain, not here.
+ANNOTATOR_REPO="$HERE/../../herdr-annotator"
+command -v cargo > /dev/null || die "cargo is missing for annotator (brew install rust)"
+[ -d "$ANNOTATOR_REPO/.git" ] || git clone -q https://github.com/jakub-tucek/herdr-annotator "$ANNOTATOR_REPO"
+python3 "$ANNOTATOR_REPO/scripts/install.py" > /dev/null || die "annotator install failed"
+# Plugins above may claim the Changes slot; it shows annotator.
+jq 'def fix: if type == "object" then (if .id == "changes" and .type == "block" then .content = {"mod": "annotator"} else . end) | with_entries(.value |= fix) elif type == "array" then map(fix) else . end; fix' \
+  "$APP_HOME/layouts/$LAYOUT.json" > "$APP_HOME/layouts/$LAYOUT.json.tmp"
+mv "$APP_HOME/layouts/$LAYOUT.json.tmp" "$APP_HOME/layouts/$LAYOUT.json"
+echo "annotator: in the Changes slot"
+
 # 5. Nothing left in error.
 errors=$(herdr-app status | jq -c '.errors')
 [ "$errors" = "[]" ] || die "herdr-app status reports errors: $errors"
