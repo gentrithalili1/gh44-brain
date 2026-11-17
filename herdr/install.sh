@@ -78,6 +78,13 @@ grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $1 }' | while read -r repo
   curl -fsSL "https://raw.githubusercontent.com/$repo/main/install.sh" | sh -s -- --app
 done
 
+# 4b. A plugin above may claim the Changes slot; it shows git-changes.
+LAYOUT_FILE="$APP_HOME/layouts/$LAYOUT.json"
+jq 'def fix: if type == "object" then (if .id == "changes" and .type == "block" then .content = {"mod": "git-changes"} else . end) | with_entries(.value |= fix) elif type == "array" then map(fix) else . end; fix' \
+  "$LAYOUT_FILE" > "$LAYOUT_FILE.tmp"
+mv "$LAYOUT_FILE.tmp" "$LAYOUT_FILE"
+echo "changes slot: git-changes"
+
 # 5. Nothing left in error.
 errors=$(herdr-app status | jq -c '.errors')
 [ "$errors" = "[]" ] || die "herdr-app status reports errors: $errors"
