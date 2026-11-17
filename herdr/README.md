@@ -26,7 +26,7 @@ Safe to run again. It replaces your keys and settings with mine.
 |---|---|
 | `layouts/gh44-herdr.json` | The layout, with its theme, panel widths and the plugins' changes |
 | `keys.json`, `settings.json` | Keys and settings |
-| `mods/` | My own mods: `hub` (GitHub and Linear work panel), `my-tabs` (tab bar) |
+| `mods/` | My own mods: `hub` (GitHub and Linear work panel), `my-tabs` (tab bar), `open-with` (Cmd+Shift+O editor picker, from jlopezlira/herdr-kanso) |
 | `plugins.txt` | Mods with their own installer: `<owner/repo> <mod prefix>` |
 | `install.sh` | Sets up this machine from the files here |
 | `sync.sh` | Copies the live layout, keys and settings back here |
