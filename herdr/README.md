@@ -16,8 +16,7 @@ It:
 2. Links the mods in `mods/` into `~/.config/herdr-app/mods`, so edits here are live. Then builds `gh44-files`: a fresh clone of Herdr's `files` panel with the gh44 code colors from `gh44-theme/herdr/gh44-syntax.js`.
 3. Copies `keys.json`, `settings.json` and `layouts/gh44-herdr.json`, and switches to the layout. A different existing file is kept as `<name>.bak-<time>`.
 4. Runs the installer of every mod in `plugins.txt`.
-5. Installs [herdr-annotator](https://github.com/jakub-tucek/herdr-annotator) (code review) from a clone at `../../herdr-annotator`, cloned if missing, and puts it in the Changes slot. Needs `cargo` (`brew install rust`).
-6. Fails if `herdr-app status` reports errors.
+5. Fails if `herdr-app status` reports errors.
 
 Safe to run again. It replaces your keys and settings with mine.
 

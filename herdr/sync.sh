@@ -7,8 +7,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 LAYOUT=gh44-herdr
-# Mods install.sh builds itself (annotator: its own installer), so they need no recording.
-BUILT_MODS="gh44-files annotator"
+# Mods install.sh builds itself, so they need no recording.
+BUILT_MODS="gh44-files"
 
 mkdir -p "$HERE/layouts"
 cp "$APP_HOME/layouts/$LAYOUT.json" "$HERE/layouts/$LAYOUT.json"
