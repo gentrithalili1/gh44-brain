@@ -238,11 +238,8 @@ export default class Hub extends View {
       this.isMenu = true;
       this.expanded = null;
       this.menuSearch = InputState.new({ placeholder: "Search" });
-      // A search shrinks the list, so it scrolls back to the top; a kept offset would show it empty.
       this.menuSearch.on("change", (_e, cx) => {
-        this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0;
-        this.optionScroll.scroll_to_item(0);
-        this.menuScroll.scroll_to_item(0);
+        this.handleMenuSearchChange();
         cx.notify();
       });
       this.menuItems = [];
@@ -513,9 +510,25 @@ export default class Hub extends View {
       .child(div().w(1).h_full().bg(t.border))
       .child(h_flex().flex_1().min_w(0).px(8).gap(6).items_center()
         .child(svg(icon("search")).size(13).text_color(t.dim))
-        .child(Input.new(state).flex_1().text_size(12).text_color(t.foreground)))
+        .child(Input.new(state).flex_1().text_size(12).text_color(t.foreground))
+        .child(this.clearButton({ id: `clear-${scopeDef.field}`, state, onClear: (cx) => { this.searchChangedAt = 0; this.tick(cx); } })))
       .child(div().w(1).h_full().bg(t.border))
       .child(this.filtersButton({ store, defs }));
+  }
+
+  // An X at the end of a search box with text: empties it and keeps the keyboard in it.
+  clearButton({ id, state, onClear }) {
+    const t = theme();
+    if (!state.value()) return div();
+    return div().id(id).size(18).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
+      .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Clear")
+      .on_click((_e, cx) => {
+        state.set_value("");
+        state.focus();
+        onClear(cx);
+        cx.notify();
+      })
+      .child(svg(icon("x")).size(12));
   }
 
   // [≡ Filters ②]: every filter in one popover, with search and Clear.
@@ -1101,11 +1114,19 @@ export default class Hub extends View {
     run("hub.start");
   }
 
+  // A search shrinks the list, so it scrolls back to the top; a kept offset would show it empty.
+  handleMenuSearchChange() {
+    this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0;
+    this.optionScroll.scroll_to_item(0);
+    this.menuScroll.scroll_to_item(0);
+  }
+
   menuSearchBox() {
     const t = theme();
     return h_flex().h(30).flex_none().px(8).gap(6).items_center().rounded(6).border(1).border_color(t.input).bg(t.background)
       .child(svg(icon("search")).size(13).text_color(t.dim))
-      .child(Input.new(this.menuSearch).flex_1().text_size(12).text_color(t.foreground));
+      .child(Input.new(this.menuSearch).flex_1().text_size(12).text_color(t.foreground))
+      .child(this.clearButton({ id: "clear-menu", state: this.menuSearch, onClear: () => this.handleMenuSearchChange() }));
   }
 
   // The Filters popover: one row per filter; clicking a row opens its options in place (one at a time).
