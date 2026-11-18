@@ -110,10 +110,10 @@ const HOVER_CARD_WIDTH = 300;
 const HOVER_CARD_DELAY_MS = 200;
 const CHIP_GAP = 4;
 const CHIP_PADDING = 14;
-const CHIP_CHAR_WIDTH = 6.4;
+const CHIP_CHAR_WIDTH = 5.8;
 const CHIP_ICON_SPACE = 15;
 const LABEL_DOT_SPACE = 12;
-const MORE_CHIP_WIDTH = 36;
+const MORE_CHIP_WIDTH = 26;
 const estimateChipWidth = ({ text, extra = 0 }) => Math.ceil(String(text ?? "").length * CHIP_CHAR_WIDTH) + CHIP_PADDING + extra;
 
 // Module scope so results survive tab switches and new panel copies:
@@ -620,20 +620,25 @@ export default class Hub extends View {
   }
 
   // As many chips as fit on one line, in order (the first always); the rest behind a "+N" chip.
+  // A chip too wide for what is left is skipped, and a later, smaller one can still take the space.
   // The line's width is measured once laid out; until then every chip shows and the line clips.
   fitChips({ id, chips }) {
     const width = this.chipLineWidths.get(id);
     if (width === undefined) return chips;
+    const widthOf = (c) => (c.width ?? estimateChipWidth({ text: c.label, extra: c.iconName ? CHIP_ICON_SPACE : 0 })) + CHIP_GAP;
+    if (chips.reduce((sum, c) => sum + widthOf(c), 0) <= width) return chips;
+    const budget = width - MORE_CHIP_WIDTH;
     let used = 0;
+    const shown = [];
+    const hidden = [];
     for (const [index, c] of chips.entries()) {
-      const isLast = index === chips.length - 1;
-      used += (c.width ?? estimateChipWidth({ text: c.label, extra: c.iconName ? CHIP_ICON_SPACE : 0 })) + CHIP_GAP;
-      if (index > 0 && used + (isLast ? 0 : MORE_CHIP_WIDTH) > width) {
-        const hidden = chips.slice(index).flatMap((h) => h.expanded ?? [h]);
-        return [...chips.slice(0, index), { element: this.hoverChips({ id: `${id}-more`, label: `+${chips.length - index}`, chips: hidden }) }];
-      }
+      if (index === 0 || used + widthOf(c) <= budget) {
+        used += widthOf(c);
+        shown.push(c);
+      } else hidden.push(c);
     }
-    return chips;
+    const more = hidden.flatMap((h) => h.expanded ?? [h]);
+    return [...shown, { element: this.hoverChips({ id: `${id}-more`, label: `+${hidden.length}`, chips: more }) }];
   }
 
   // One row shape for both tabs: a card nested under its group's header, with a rail in the group's tone.
