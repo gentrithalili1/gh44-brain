@@ -7,7 +7,7 @@ const ISSUE_LIMIT = 100;
 const ISSUES_QUERY = `query($filter: IssueFilter, $first: Int) {
   issues(filter: $filter, first: $first, orderBy: updatedAt) {
     nodes {
-      id identifier title url branchName priority
+      id identifier title url branchName priority createdAt updatedAt
       state { name type }
       team { id key }
       project { id name }
@@ -32,6 +32,8 @@ const toIssue = (n) => ({
   url: n.url,
   branch: n.branchName,
   priority: n.priority,
+  createdAt: n.createdAt,
+  updatedAt: n.updatedAt,
   state: n.state?.name ?? "",
   stateType: n.state?.type ?? "",
   team: n.team?.key ?? "",

@@ -6,7 +6,7 @@ import { h_flex, v_flex, InputState, Input, ScrollHandle, HoverCard } from "gpui
 import { theme, run, focused, layout, spaces, panes, shared, setShared, openOverlay, closeOverlay, props, checking, nextCommand, home, notify } from "herdr";
 import {
   GITHUB_DEFAULTS, LINEAR_DEFAULTS, GITHUB_SCOPES, LINEAR_SCOPES, CI_OPTIONS, PRIORITY_OPTIONS, UNASSIGNED,
-  REVIEW_OPTIONS, SORT_OPTIONS, NO_ASSIGNEE,
+  REVIEW_OPTIONS, SORT_OPTIONS, LINEAR_SORT_OPTIONS, NO_ASSIGNEE,
   filterPullRequests, filterIssues, groupIssuesByState, toOptions, getAuthorOptions, buildIssueFilter, getProjectOptions, buildPullRequestQuery,
   getMyReviewState, isReviewScope, groupPullRequests, isGithubQuery,
 } from "./filters.js";
@@ -1007,6 +1007,7 @@ export default class Hub extends View {
       { title: "Priority", field: "priorities", isMulti: true, options: PRIORITY_OPTIONS },
       { title: "Label", field: "labels", isMulti: true, options: toOptions([...items.flatMap((i) => i.labels), ...f.labels]) },
       ...(f.mine ? [] : [{ title: "Assignee", field: "assignees", isMulti: true, options: [{ value: UNASSIGNED, label: UNASSIGNED }, ...toOptions(items.map((i) => i.assignee))] }]),
+      { title: "Sort", field: "sort", isMulti: false, options: LINEAR_SORT_OPTIONS },
     ];
     const handleClear = () => { this.linearSearch.set_value(""); setShared(store, { ...LINEAR_DEFAULTS, mine: f.mine }); };
     const state = this.listState({
@@ -1017,7 +1018,7 @@ export default class Hub extends View {
     const elements = [...this.cleanupNote()];
     const selectable = [];
     this.followShownTab({ tab: "linear", items: shown, label: (issue) => issue.identifier });
-    for (const group of groupIssuesByState(shown)) {
+    for (const group of groupIssuesByState(shown, f.sort)) {
       const stage = getIssueStage(group.items[0]);
       const headerId = `ln-${group.state}`;
       elements.push(this.listHeader({ id: headerId, label: group.state, count: group.items.length, tone: STAGE_STATUS[stage], iconName: `state-${stage}` }));

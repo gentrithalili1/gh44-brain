@@ -1,7 +1,7 @@
 // Pure filtering and grouping for the hub panel. No herdr or UI imports.
 
 export const GITHUB_DEFAULTS = { scope: "review", authors: [], labels: [], teams: [], reviews: "any", assignees: [], checks: "any", sort: "newest" };
-export const LINEAR_DEFAULTS = { mine: true, teams: [], projects: [], statuses: [], priorities: [], labels: [], assignees: [] };
+export const LINEAR_DEFAULTS = { mine: true, teams: [], projects: [], statuses: [], priorities: [], labels: [], assignees: [], sort: "priority" };
 
 // The same views as GitHub's pull request sidebar.
 export const GITHUB_SCOPES = [
@@ -29,6 +29,15 @@ export const SORT_OPTIONS = [
   { value: "updated", label: "Recently updated" },
   { value: "stale", label: "Least recently updated" },
   { value: "comments", label: "Most commented" },
+];
+
+// Order inside each status group of Linear tickets.
+export const LINEAR_SORT_OPTIONS = [
+  { value: "priority", label: "Priority" },
+  { value: "updated", label: "Recently updated" },
+  { value: "stale", label: "Least recently updated" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
 ];
 
 export const NO_ASSIGNEE = "__none__";
@@ -194,15 +203,27 @@ const typeRank = (type) => {
   return i === -1 ? STATE_TYPE_ORDER.length : i;
 };
 
-// [{ state, type, items }], in-progress groups first, each sorted by priority.
-export function groupIssuesByState(items) {
+// ISO dates compare as strings; ties keep the most recently updated first.
+const byDate = (field, direction) => (a, b) => direction * String(a[field] ?? "").localeCompare(String(b[field] ?? ""));
+const byUpdated = byDate("updatedAt", -1);
+const ISSUE_ORDER = {
+  priority: (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || byUpdated(a, b),
+  updated: byUpdated,
+  stale: byDate("updatedAt", 1),
+  newest: (a, b) => byDate("createdAt", -1)(a, b) || byUpdated(a, b),
+  oldest: (a, b) => byDate("createdAt", 1)(a, b) || byUpdated(a, b),
+};
+
+// [{ state, type, items }], in-progress groups first, each in the picked order (priority by default).
+export function groupIssuesByState(items, sort = "priority") {
   const groups = new Map();
   for (const issue of items) {
     if (!groups.has(issue.state)) groups.set(issue.state, { state: issue.state, type: issue.stateType, items: [] });
     groups.get(issue.state).items.push(issue);
   }
   const sorted = [...groups.values()].sort((a, b) => typeRank(a.type) - typeRank(b.type) || a.state.localeCompare(b.state));
-  for (const g of sorted) g.items.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  const order = ISSUE_ORDER[sort] ?? ISSUE_ORDER.priority;
+  for (const g of sorted) g.items.sort(order);
   return sorted;
 }
 
