@@ -35,6 +35,8 @@ const defaultsFor = (store) => (isGithubStore(store) ? GITHUB_DEFAULTS : LINEAR_
 
 const TICK_MS = 1000;
 const REFRESH_MS = 120_000;
+// Other repos' PR lists load in the background at most this often, while the panel is open.
+const PREFETCH_MS = REFRESH_MS;
 // A failed load or "not a repo" is retried this soon, so a hiccup never sticks.
 const ERROR_RETRY_MS = 5_000;
 // Opening the panel or switching space/tab refreshes the shown list, at most this often.
@@ -123,6 +125,13 @@ const estimateChipWidth = ({ text, extra = 0 }) => Math.ceil(String(text ?? "").
 // key -> { result, at }. A key is a repo + scope, or a Linear filter.
 const cache = new Map();
 const inflight = new Set();
+// The cache keeps the most recently written lists only: one per repo, filter and search seen.
+const CACHE_LIMIT = 30;
+function cacheSet(key, value) {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+}
 // folder -> repo id (shared git dir) or null; when a null was last checked.
 const repoIds = new Map();
 const repoCheckedAt = new Map();
@@ -356,16 +365,24 @@ export default class Hub extends View {
       repoNames.set(repoId, null);
       repoNameCheckedAt.set(repoId, Date.now());
       cx.spawn(async (cx) => {
-        const name = await loadRepoName({ folder, machine });
-        repoNames.set(repoId, name);
-        repoLabels.set(repoId, await loadRepoLabels({ folder, machine }));
-        if (name) repoUsers.set(repoId, await loadRepoUsers({ repo: name, machine }));
+        repoNames.set(repoId, await loadRepoName({ folder, machine }));
         this.tick(cx);
       });
       return;
     }
     const repo = repoId ? repoNames.get(repoId) : null;
     if (repoId && !repo) return;
+    // Labels and people only feed the filters, so they load after the PR list has started.
+    if (!repoLabels.has(repoId)) {
+      const machine = activeMachine();
+      repoLabels.set(repoId, []);
+      cx.spawn(async (cx) => {
+        const [labels, users] = await Promise.all([loadRepoLabels({ folder, machine }), loadRepoUsers({ repo, machine })]);
+        repoLabels.set(repoId, labels);
+        repoUsers.set(repoId, users);
+        cx.notify();
+      });
+    }
     const org = repo?.split("/")[0];
     if (org && session.login && !myTeams.has(org)) {
       myTeams.set(org, []);
@@ -395,6 +412,33 @@ export default class Hub extends View {
     this.shouldRevalidate = false;
     const query = this.githubQuery;
     if (isShown) this.ensure({ cx, key: this.githubKey, load: () => (query ? loadPullRequests({ query }) : Promise.resolve({ status: "error", reason: "notRepo" })) });
+    if (isShown && Date.now() - (session.prefetchedAt ?? 0) > PREFETCH_MS) this.prefetchOtherRepos(cx);
+  }
+
+  // The PR lists of the other repos with an open space, one after another in the background,
+  // with each repo's saved filters and no search: a first switch to one shows its list at once.
+  prefetchOtherRepos(cx) {
+    session.prefetchedAt = Date.now();
+    const shownRepoId = this.repoId;
+    const targets = spaces().filter((sp) => sp.folder).map((sp) => ({ folder: sp.folder, machine: sp.machine }));
+    cx.spawn(async () => {
+      for (const { folder, machine } of targets) {
+        if (!repoIds.has(folder)) repoIds.set(folder, await loadRepoId({ folder, machine }));
+        const repoId = repoIds.get(folder);
+        if (!repoId || repoId === shownRepoId) continue;
+        if (!repoNames.get(repoId)) repoNames.set(repoId, await loadRepoName({ folder, machine }));
+        const repo = repoNames.get(repoId);
+        if (!repo) continue;
+        const query = buildPullRequestQuery({ repo, filters: getFilters(`${STORE.github}|${repoId}`), search: "" });
+        const key = `gh|${repoId}|${query}`;
+        const entry = cache.get(key);
+        if ((entry && Date.now() - entry.at < REFRESH_MS) || inflight.has(key)) continue;
+        inflight.add(key);
+        const result = await loadPullRequests({ query });
+        inflight.delete(key);
+        if (result.status === "success") cacheSet(key, { result, at: Date.now() });
+      }
+    });
   }
 
   // The next page of PRs, added to the cached list.
@@ -413,7 +457,7 @@ export default class Hub extends View {
       if (next.status === "success" && current?.result.status === "success") {
         const seen = new Set(current.result.items.map((pr) => pr.id));
         const items = [...current.result.items, ...next.items.filter((pr) => !seen.has(pr.id))];
-        cache.set(key, { ...current, result: { ...current.result, items, cursor: next.cursor, hasMore: next.hasMore } });
+        cacheSet(key, { ...current, result: { ...current.result, items, cursor: next.cursor, hasMore: next.hasMore } });
       }
       cx.notify();
     });
@@ -422,7 +466,7 @@ export default class Hub extends View {
   // Mark a list stale so the next ensure refetches it in the background; the old list stays on screen.
   revalidate(key) {
     const entry = cache.get(key);
-    if (entry && Date.now() - entry.at > MIN_REVALIDATE_MS) cache.set(key, { ...entry, at: 0 });
+    if (entry && Date.now() - entry.at > MIN_REVALIDATE_MS) cacheSet(key, { ...entry, at: 0 });
   }
 
   ensure({ cx, key, load }) {
@@ -436,7 +480,7 @@ export default class Hub extends View {
       inflight.delete(key);
       // A failed refresh keeps the last good list on screen.
       const keepOld = result.status !== "success" && entry?.result.status === "success";
-      cache.set(key, { result: keepOld ? entry.result : result, at: Date.now() });
+      cacheSet(key, { result: keepOld ? entry.result : result, at: Date.now() });
       if (result.status === "success" && key.startsWith("ln|") && session.meta.status !== "success") this.loadMeta(cx);
       cx.notify();
     });
@@ -454,7 +498,7 @@ export default class Hub extends View {
   handleRefresh(cx) {
     for (const key of [this.githubKey, this.linearKey]) {
       const entry = cache.get(key);
-      if (entry) cache.set(key, { ...entry, at: 0 });
+      if (entry) cacheSet(key, { ...entry, at: 0 });
     }
     this.loadMeta(cx);
     this.tick(cx);
@@ -822,7 +866,7 @@ export default class Hub extends View {
       level: skipped.length ? "warning" : "success",
     });
     const entry = cache.get(`wt|${this.repoId}`);
-    if (entry) cache.set(`wt|${this.repoId}`, { ...entry, at: 0 });
+    if (entry) cacheSet(`wt|${this.repoId}`, { ...entry, at: 0 });
     cx.notify();
   }
 
@@ -1271,8 +1315,15 @@ export default class Hub extends View {
       .child(div().h(2).w_full().rounded(1).bg(isOn ? t.accent : t.surface));
   }
 
-  render() {
+  render(cx) {
     if (this.isMenu) return this.menuView();
+    // Herdr re-renders on every space, tab or focus change: switch repos now instead of on the
+    // next tick. render may not notify, so the tick runs in a task, once per new folder.
+    const folder = currentFolder();
+    if (folder !== this.folder && folder !== this.pendingFolder) {
+      this.pendingFolder = folder;
+      cx.spawn(async (cx) => { this.pendingFolder = undefined; this.tick(cx); });
+    }
     const t = theme();
     const tab = currentTab();
     const isLoading = inflight.has(this.githubKey) || inflight.has(this.linearKey);

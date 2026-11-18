@@ -69,8 +69,15 @@ export async function loadRepoId({ folder, machine }) {
   }
 }
 
+// owner/name from a GitHub remote URL: git@github.com:o/n.git or https://github.com/o/n.
+const GITHUB_REMOTE = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/;
+
+// The origin remote answers locally in ~20ms; `gh repo view` (a network call, ~0.8s) only when it is not GitHub.
 export async function loadRepoName({ folder, machine }) {
   try {
+    const remote = await exec("git", ["remote", "get-url", "origin"], { cwd: folder, on: machine });
+    const match = remote.code === 0 ? remote.stdout.trim().match(GITHUB_REMOTE) : null;
+    if (match) return match[1];
     const r = await exec("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { cwd: folder, on: machine });
     return r.code === 0 ? r.stdout.trim() : null;
   } catch {
