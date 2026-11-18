@@ -630,7 +630,8 @@ export default class Hub extends View {
     const tab = currentTab();
     const isSelected = this.selected[tab] === id;
     return h_flex().id(`row-${id}`).flex_none().mx(GUTTER - 4).my(2).pl(6).pr(8).py(8).gap(8).rounded(6)
-      .bg(isSelected ? t.selected : t.surface)
+      // Selected (for the keyboard) is a quiet step up from the card, not the strong selection color.
+      .bg(isSelected ? t.hover : t.surface)
       .on_click((_e, cx) => { this.selected[tab] = id; this.handle.focus(); cx.notify(); })
       .child(div().w(2).flex_none().self_stretch().rounded(1).bg(palette(t)[rail]).opacity(RAIL_OPACITY))
       .child(v_flex().flex_1().min_w(0).gap(6)
