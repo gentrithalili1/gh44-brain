@@ -11,7 +11,7 @@ import {
   getMyReviewState, isReviewScope, groupPullRequests, isGithubQuery,
 } from "./filters.js";
 import {
-  loadPullRequests, loadRepoName, loadRepoId, loadRepoLabels, loadRepoUsers, loadMyTeams, loadGithubLogin,
+  PAGE_SIZE, loadPullRequests, loadRepoName, loadRepoId, loadRepoLabels, loadRepoUsers, loadMyTeams, loadGithubLogin,
   loadWorktrees, loadMergedWorktrees, removeWorktree,
 } from "./github.js";
 import { loadIssues, loadLinearMeta } from "./linear.js";
@@ -732,6 +732,24 @@ export default class Hub extends View {
         .on_click((_e, cx) => action.onClick(cx)).child(action.label)));
   }
 
+  // The end of a paged list, centered: a "Load 30 more" button over "30 of 142".
+  // While a page loads, the button shows a spinner and does nothing.
+  loadMoreFooter({ shown, total, hasMore }) {
+    const t = theme();
+    const isLoading = inflight.has(`${this.githubKey}|more`);
+    const next = Math.min(PAGE_SIZE, total - shown);
+    const button = h_flex().id("gh-load-more").h(30).px(14).gap(6).items_center().rounded(6).text_size(12.5)
+      .border(1).border_color(t.border).bg(t.raised).text_color(isLoading ? t.muted : t.foreground)
+      .when(!isLoading, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.loadMore(cx)))
+      .child(isLoading
+        ? svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.working).spin(900)
+        : svg(icon("chevron")).size(12).text_color(t.muted))
+      .child(isLoading ? "Loading…" : `Load ${next} more`);
+    return v_flex().id("gh-more").flex_none().py(14).gap(6).items_center()
+      .when(hasMore, (el) => el.child(button))
+      .child(div().text_size(11).text_color(t.dim).child(`${shown} of ${total}`));
+  }
+
   // A scrolling list whose direct children are the rows, so the keyboard can scroll to one.
   list({ id, state, entries }) {
     return v_flex().id(id).flex_1().min_h(0).overflow_y_scrollbar().track_scroll(this.scroll)
@@ -945,11 +963,7 @@ export default class Hub extends View {
         text: this.isShowingReviewed ? `Showing ${reviewedCount} you already reviewed.` : `${reviewedCount} you already reviewed hidden.`,
         action: { label: this.isShowingReviewed ? "Hide" : "Show", onClick: (cx) => { this.isShowingReviewed = !this.isShowingReviewed; cx.notify(); } },
       })] : []),
-      ...(result?.status === "success" && result.total > items.length ? [this.note({
-        id: "gh-more",
-        text: inflight.has(`${this.githubKey}|more`) ? `Loading more of ${result.total}…` : `Showing ${items.length} of ${result.total}.`,
-        action: result.hasMore && !inflight.has(`${this.githubKey}|more`) ? { label: "Load more", onClick: (cx) => this.loadMore(cx) } : null,
-      })] : []),
+      ...(result?.status === "success" && result.total > items.length ? [this.loadMoreFooter({ shown: items.length, total: result.total, hasMore: result.hasMore })] : []),
     ];
     return v_flex().flex_1().min_h(0)
       .child(v_flex().px(GUTTER).pt(12).pb(12).gap(6).border_b(1).border_color(t.border)
