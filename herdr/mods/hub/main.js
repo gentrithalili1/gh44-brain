@@ -261,6 +261,9 @@ export default class Hub extends View {
       return;
     }
     this.selected = { github: null, linear: null };
+    // The shown tab each list last followed, and a row to scroll to once it is laid out.
+    this.followedTab = { github: undefined, linear: undefined };
+    this.scrollToRow = { github: null, linear: null };
     // row id -> its chips line width, measured after layout.
     this.chipLineWidths = new Map();
     this.visible = { github: [], linear: [] };
@@ -805,6 +808,27 @@ export default class Hub extends View {
     cx.notify();
   }
 
+  // A newly shown tab selects its row: a hub tab is named "<label> <skill>", else the
+  // space's branch matches the row's. Only on a change, so j/k keep their pick meanwhile.
+  followShownTab({ tab, items, label }) {
+    const space = spaces().find((sp) => sp.active);
+    const shownTab = space?.tabs.find((tb) => tb.active);
+    if (!shownTab || shownTab.id === this.followedTab[tab] || items.length === 0) return;
+    this.followedTab[tab] = shownTab.id;
+    const item = items.find((i) => shownTab.name.startsWith(`${label(i)} `))
+      ?? (space.branch ? items.find((i) => i.branch === space.branch) : undefined);
+    if (!item) return;
+    this.selected[tab] = item.id;
+    this.scrollToRow[tab] = item.id;
+  }
+
+  scrollToFollowed({ tab, rows }) {
+    const row = rows.find((r) => r.id === this.scrollToRow[tab]);
+    if (!row) return;
+    this.scrollToRow[tab] = null;
+    this.scroll.scroll_to_item(row.index);
+  }
+
   // ---------- GitHub ----------
 
   pullRequestEntry({ pr, group }) {
@@ -901,6 +925,7 @@ export default class Hub extends View {
       ...(isPasted ? [this.note({ id: "gh-pasted", text: "Running your GitHub query as is. Show and Filters are off until you clear it." })] : []),
     ];
     const selectable = [];
+    this.followShownTab({ tab: "github", items: shown, label: (pr) => `#${pr.number}` });
     for (const group of groupPullRequests({ items: shown, login: session.login })) {
       const headerId = `pr-${group.id}`;
       elements.push(this.listHeader({ id: headerId, label: group.label, count: group.items.length, tone: group.tone }));
@@ -912,6 +937,7 @@ export default class Hub extends View {
       }
     }
     this.visible.github = selectable;
+    this.scrollToFollowed({ tab: "github", rows: selectable });
     const repo = repoNames.get(this.repoId);
     const footer = [
       ...(reviewedCount > 0 ? [this.note({
@@ -990,6 +1016,7 @@ export default class Hub extends View {
     // Notes, headers and rows side by side, so a row's child index is known for scrolling.
     const elements = [...this.cleanupNote()];
     const selectable = [];
+    this.followShownTab({ tab: "linear", items: shown, label: (issue) => issue.identifier });
     for (const group of groupIssuesByState(shown)) {
       const stage = getIssueStage(group.items[0]);
       const headerId = `ln-${group.state}`;
@@ -1002,6 +1029,7 @@ export default class Hub extends View {
       }
     }
     this.visible.linear = selectable;
+    this.scrollToFollowed({ tab: "linear", rows: selectable });
     if (result?.isCapped) elements.push(this.note({ id: "ln-cap", text: "Showing the 100 most recently updated. Narrow the filters to see more." }));
     return v_flex().flex_1().min_h(0)
       .child(v_flex().px(GUTTER).pt(12).pb(12).gap(6).border_b(1).border_color(t.border)
