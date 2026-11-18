@@ -2,8 +2,8 @@
 import { run, spaces, agents, appHome, notify, openOverlay, exec } from "herdr";
 
 export const LINEAR_SKILLS = ["gh44-clarify", "gh44-plan", "gh44-implement", "gh44-address-review"];
-export const GITHUB_SKILLS = ["gh44-code-review", "gh44-address-review"];
-const PR_SKILLS = ["gh44-code-review", "gh44-address-review"];
+export const GITHUB_SKILLS = ["gh44-code-review", "gh44-address-review", "gh44-resolve-conflicts"];
+const PR_SKILLS = ["gh44-code-review", "gh44-address-review", "gh44-resolve-conflicts"];
 
 // Where a ticket is: backlog, todo, progress or review (a started state named like "In Review").
 export function getIssueStage(issue) {

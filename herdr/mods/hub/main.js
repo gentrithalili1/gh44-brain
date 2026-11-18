@@ -63,11 +63,11 @@ const HOUR_MS = 3_600_000;
 
 // Keys on a selected row that start a skill directly.
 const KEY_SKILLS = {
-  github: { r: "gh44-code-review", a: "gh44-address-review" },
+  github: { r: "gh44-code-review", a: "gh44-address-review", c: "gh44-resolve-conflicts" },
   linear: { c: "gh44-clarify", p: "gh44-plan", i: "gh44-implement", a: "gh44-address-review" },
 };
 const KEY_HINTS = {
-  github: "j/k move · ↵ run · r review · a address · o open · / search",
+  github: "j/k move · ↵ run · r review · a address · c conflicts · o open · / search",
   linear: "j/k move · ↵ run · c clarify · p plan · i implement · o open · / search",
 };
 
