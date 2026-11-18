@@ -90,10 +90,13 @@ const AGENT_STATUS = {
   done: { label: "done", tone: "success" },
   idle: { label: "idle", tone: "neutral" },
 };
+// The review status, right after the PR number so it never folds into "+N".
+// No decision (GitHub leaves it out for some PRs) still needs a review, like REVIEW_REQUIRED.
 const DECISION_CHIP = {
   APPROVED: { label: "approved", tone: "success" },
   CHANGES_REQUESTED: { label: "changes requested", tone: "danger" },
 };
+const NEEDS_REVIEW_CHIP = { label: "needs review", tone: "warning" };
 const CI_CHIP_LABEL = { passing: "checks passing", failing: "checks failing", pending: "checks running" };
 // PR numbers in the terminal's font.
 const MONO_FONT = "Lilex";
@@ -823,19 +826,19 @@ export default class Hub extends View {
     return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
   }
 
-  // PR · author and age · conflicts · checks · review · size · labels
+  // PR · review status · author and age · conflicts · checks · size · labels
   pullRequestChips({ pr, group }) {
     const colors = palette(theme());
     const id = pr.number;
     const ci = CI_STATUS[pr.ci];
-    const decision = DECISION_CHIP[pr.decision];
+    const decision = pr.isDraft ? null : DECISION_CHIP[pr.decision] ?? NEEDS_REVIEW_CHIP;
     return [
       this.pullRequestChip({ id, url: pr.url, branch: pr.branch }),
+      ...(decision ? [{ id: `${id}-decision`, ...decision }] : []),
       ...(pr.author ? [{ id: `${id}-author`, label: `${pr.author} · ${formatAge(pr.createdAt)}`, tone: "quiet", tip: `Opened by ${pr.author}` }] : []),
       ...(pr.hasConflicts ? [{ id: `${id}-conflicts`, label: "conflicts", tone: "danger" }] : []),
       ...(CI_CHIP_LABEL[pr.ci] ? [{ id: `${id}-ci`, label: CI_CHIP_LABEL[pr.ci], iconName: `ci-${pr.ci}`, tone: ci.tone }] : []),
       ...(group.id === "rereview" ? [{ id: `${id}-rereview`, label: "asked again", tone: "warning" }] : []),
-      ...(decision ? [{ id: `${id}-decision`, ...decision }] : []),
       {
         id: `${id}-diff`,
         width: estimateChipWidth({ text: `+${pr.additions} −${pr.deletions}` }),
