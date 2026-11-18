@@ -35,6 +35,7 @@ const toIssue = (n) => ({
   state: n.state?.name ?? "",
   stateType: n.state?.type ?? "",
   team: n.team?.key ?? "",
+  teamId: n.team?.id ?? null,
   project: n.project?.name ?? null,
   assignee: n.assignee?.name ?? null,
   labels: (n.labels?.nodes ?? []).map((l) => l.name),
@@ -72,4 +73,25 @@ export async function loadLinearMeta() {
     teams: r.data.teams.nodes.map((t) => ({ value: t.id, label: `${t.name} (${t.key})` })).sort((a, b) => a.label.localeCompare(b.label)),
     projects: r.data.projects.nodes.map((p) => ({ id: p.id, name: p.name, teamIds: p.teams.nodes.map((t) => t.id) })).sort((a, b) => a.name.localeCompare(b.name)),
   };
+}
+
+const STARTED_STATES_QUERY = `query($id: String!) {
+  team(id: $id) { states(filter: { type: { eq: "started" } }) { nodes { id name position } } }
+}`;
+
+const MOVE_ISSUE_MUTATION = `mutation($id: String!, $stateId: String!) {
+  issueUpdate(id: $id, input: { stateId: $stateId }) { success }
+}`;
+
+// Moves an issue to its team's first started status that is not a review one ("In Progress").
+export async function moveIssueToInProgress(issue) {
+  const r = await request({ query: STARTED_STATES_QUERY, variables: { id: issue.teamId } });
+  if (r.status !== "success") return r;
+  const state = r.data.team.states.nodes
+    .filter((st) => !/review/i.test(st.name))
+    .sort((a, b) => a.position - b.position)[0];
+  if (!state) return { status: "error", reason: "failed", message: "No started status in the team" };
+  const m = await request({ query: MOVE_ISSUE_MUTATION, variables: { id: issue.id, stateId: state.id } });
+  if (m.status !== "success") return m;
+  return { status: "success", state: state.name };
 }

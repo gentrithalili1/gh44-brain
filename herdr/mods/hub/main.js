@@ -765,7 +765,7 @@ export default class Hub extends View {
     const space = issue.branch ? spaces().find((sp) => sp.branch === issue.branch) : undefined;
     const worktree = space?.folder ?? (cache.get(`wt|${this.repoId}`)?.result.items ?? []).find((w) => w.branch === issue.branch)?.path;
     const target = {
-      ref: issue.identifier, prRef: issue.prUrl, label: issue.identifier, branch: issue.branch, main: this.repoMain(),
+      ref: issue.identifier, prRef: issue.prUrl, label: issue.identifier, branch: issue.branch, main: this.repoMain(), issue,
       ...(worktree ? { worktree } : {}), ...(space ? { space: space.id } : {}),
     };
     const agent = findAgentFor({ label: issue.identifier, branch: issue.branch });

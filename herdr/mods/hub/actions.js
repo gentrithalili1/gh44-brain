@@ -1,5 +1,6 @@
 // Starting a gh44 skill in a new Claude tab: here, in the background, or in the ticket's worktree.
 import { run, spaces, agents, appHome, notify, openOverlay, exec } from "herdr";
+import { moveIssueToInProgress } from "./linear.js";
 
 export const LINEAR_SKILLS = ["gh44-clarify", "gh44-plan", "gh44-implement", "gh44-address-review"];
 export const GITHUB_SKILLS = ["gh44-code-review", "gh44-address-review", "gh44-resolve-conflicts"];
@@ -16,6 +17,20 @@ const STAGE_SKILL = { backlog: "gh44-plan", todo: "gh44-plan", progress: "gh44-i
 
 // The next step for a ticket follows its status.
 export const getDefaultLinearSkill = (issue) => STAGE_SKILL[getIssueStage(issue)];
+
+// Starting work on a ticket that is not started yet moves it to In Progress.
+const WORK_SKILLS = ["gh44-plan", "gh44-implement"];
+const NOT_STARTED_STAGES = ["backlog", "todo"];
+
+async function startIssue(issue) {
+  const r = await moveIssueToInProgress(issue);
+  if (r.status === "success") {
+    notify({ title: `${issue.identifier} moved to ${r.state}`, level: "info" });
+    return;
+  }
+  const body = r.reason === "auth" ? "Run `linear auth login`." : r.message;
+  notify({ title: `Could not move ${issue.identifier} to In Progress`, body, level: "warning" });
+}
 
 // A space already working on this branch, other than the shown one.
 export const findSpaceOnBranch = (branch) => (branch ? spaces().find((s) => !s.active && s.branch === branch) ?? null : null);
@@ -43,13 +58,14 @@ export const getDefaultGithubSkill = ({ pr, login }) => (login && pr.author === 
 
 // target: { ref (what the skill gets), prRef? (for PR skills), label (tab name prefix),
 //   branch?, folder?, main? (the repo's main checkout), worktree? (an existing checkout of the branch),
-//   space? (a space already open on the branch) }
+//   space? (a space already open on the branch), issue? (the Linear issue, for its status) }
 // isBackground: open the tab without switching to it (reviews). isWorktree: in the ticket's worktree.
 export function startSkill({ skill, target, isWorktree = false, isBackground = false }) {
   const ref = PR_SKILLS.includes(skill) && target.prRef ? target.prRef : target.ref;
   const prompt = `/${skill} ${ref}`;
   const name = `${target.label} ${shortSkill(skill)}`;
   const space = spaces().find((s) => s.active);
+  if (target.issue && WORK_SKILLS.includes(skill) && NOT_STARTED_STAGES.includes(getIssueStage(target.issue))) void startIssue(target.issue);
   if (isWorktree && target.space) {
     run("tab.new", { name, space: target.space, folder: target.worktree, argv: ["claude", prompt], focus: !isBackground });
     return;
