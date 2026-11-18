@@ -152,6 +152,16 @@ export function groupIssuesByState(items) {
 }
 
 // Sorted unique values as menu options.
+// Author options: the repo's people plus any author or pick not among them. The label holds
+// the name too, so the filter search finds "Arrastia" as well as the login.
+export function getAuthorOptions({ users, logins }) {
+  const names = new Map(users.map((u) => [u.login, u.name]));
+  for (const login of logins) if (login && !names.has(login)) names.set(login, "");
+  return [...names.entries()]
+    .map(([login, name]) => ({ value: login, label: name ? `${name} (${login})` : login }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function toOptions(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
 }

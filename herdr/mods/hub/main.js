@@ -7,11 +7,11 @@ import { theme, run, focused, layout, spaces, panes, shared, setShared, openOver
 import {
   GITHUB_DEFAULTS, LINEAR_DEFAULTS, GITHUB_SCOPES, LINEAR_SCOPES, CI_OPTIONS, PRIORITY_OPTIONS, UNASSIGNED,
   REVIEW_OPTIONS, SORT_OPTIONS, NO_ASSIGNEE,
-  filterPullRequests, filterIssues, groupIssuesByState, toOptions, buildIssueFilter, getProjectOptions, buildPullRequestQuery,
+  filterPullRequests, filterIssues, groupIssuesByState, toOptions, getAuthorOptions, buildIssueFilter, getProjectOptions, buildPullRequestQuery,
   getMyReviewState, isReviewScope,
 } from "./filters.js";
 import {
-  loadPullRequests, loadRepoName, loadRepoId, loadRepoLabels, loadMyTeams, loadGithubLogin,
+  loadPullRequests, loadRepoName, loadRepoId, loadRepoLabels, loadRepoUsers, loadMyTeams, loadGithubLogin,
   loadWorktrees, loadMergedWorktrees, removeWorktree,
 } from "./github.js";
 import { loadIssues, loadLinearMeta } from "./linear.js";
@@ -103,6 +103,7 @@ const repoIds = new Map();
 const repoCheckedAt = new Map();
 const repoNames = new Map();
 const repoLabels = new Map();
+const repoUsers = new Map();
 const repoNameCheckedAt = new Map();
 // org -> my teams there, for the Team filter.
 const myTeams = new Map();
@@ -316,8 +317,10 @@ export default class Hub extends View {
       repoNames.set(repoId, null);
       repoNameCheckedAt.set(repoId, Date.now());
       cx.spawn(async (cx) => {
-        repoNames.set(repoId, await loadRepoName({ folder, machine }));
+        const name = await loadRepoName({ folder, machine });
+        repoNames.set(repoId, name);
         repoLabels.set(repoId, await loadRepoLabels({ folder, machine }));
+        if (name) repoUsers.set(repoId, await loadRepoUsers({ repo: name, machine }));
         this.tick(cx);
       });
       return;
@@ -713,7 +716,7 @@ export default class Hub extends View {
     ]).entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
     const reviewedCount = isReviewScope(f.scope) ? items.filter((pr) => getMyReviewState({ pr, login: session.login }) === "reviewed").length : 0;
     const defs = [
-      { title: "Author", field: "authors", isMulti: true, options: toOptions([...items.map((p) => p.author), ...f.authors]) },
+      { title: "Author", field: "authors", isMulti: true, options: getAuthorOptions({ users: repoUsers.get(this.repoId) ?? [], logins: [...items.map((p) => p.author), ...f.authors] }) },
       { title: "Label", field: "labels", isMulti: true, options: toOptions([...(repoLabels.get(this.repoId) ?? []), ...f.labels]) },
       { title: "Team", field: "teams", isMulti: true, options: teamOptions },
       { title: "Reviews", field: "reviews", isMulti: false, options: REVIEW_OPTIONS },

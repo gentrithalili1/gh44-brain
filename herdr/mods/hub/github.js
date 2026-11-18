@@ -85,6 +85,25 @@ export async function loadRepoLabels({ folder, machine }) {
   }
 }
 
+// People who can be assigned in the repo, for the Author filter: [{ login, name }].
+// The PRs on one page carry only a few authors, and only their logins.
+const REPO_USERS_QUERY = "query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { assignableUsers(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { login name } } } }";
+
+export async function loadRepoUsers({ repo, machine }) {
+  const [owner, name] = repo.split("/");
+  try {
+    const r = await exec("gh", ["api", "graphql", "--paginate", "-f", `query=${REPO_USERS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`,
+      "--jq", ".data.repository.assignableUsers.nodes[] | [.login, .name // \"\"] | @tsv"], { on: machine, timeout: GH_TIMEOUT_MS });
+    if (r.code !== 0) return [];
+    return r.stdout.split("\n").filter(Boolean).map((line) => {
+      const [login, fullName = ""] = line.split("\t");
+      return { login, name: fullName.trim() };
+    });
+  } catch {
+    return [];
+  }
+}
+
 // The teams I'm in, for the Team filter: [{ value: "org/team", label: "team" }].
 export async function loadMyTeams({ org, login }) {
   try {
