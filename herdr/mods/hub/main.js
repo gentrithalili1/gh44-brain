@@ -434,9 +434,12 @@ export default class Hub extends View {
         const entry = cache.get(key);
         if ((entry && Date.now() - entry.at < REFRESH_MS) || inflight.has(key)) continue;
         inflight.add(key);
-        const result = await loadPullRequests({ query });
-        inflight.delete(key);
-        if (result.status === "success") cacheSet(key, { result, at: Date.now() });
+        try {
+          const result = await loadPullRequests({ query });
+          if (result.status === "success") cacheSet(key, { result, at: Date.now() });
+        } finally {
+          inflight.delete(key);
+        }
       }
     });
   }
@@ -451,15 +454,18 @@ export default class Hub extends View {
     cx.notify();
     const query = this.githubQuery;
     cx.spawn(async (cx) => {
-      const next = await loadPullRequests({ query, after: entry.result.cursor });
-      inflight.delete(moreKey);
-      const current = cache.get(key);
-      if (next.status === "success" && current?.result.status === "success") {
-        const seen = new Set(current.result.items.map((pr) => pr.id));
-        const items = [...current.result.items, ...next.items.filter((pr) => !seen.has(pr.id))];
-        cacheSet(key, { ...current, result: { ...current.result, items, cursor: next.cursor, hasMore: next.hasMore } });
+      try {
+        const next = await loadPullRequests({ query, after: entry.result.cursor });
+        const current = cache.get(key);
+        if (next.status === "success" && current?.result.status === "success") {
+          const seen = new Set(current.result.items.map((pr) => pr.id));
+          const items = [...current.result.items, ...next.items.filter((pr) => !seen.has(pr.id))];
+          cacheSet(key, { ...current, result: { ...current.result, items, cursor: next.cursor, hasMore: next.hasMore } });
+        }
+      } finally {
+        inflight.delete(moreKey);
+        cx.notify();
       }
-      cx.notify();
     });
   }
 
@@ -474,16 +480,25 @@ export default class Hub extends View {
     const maxAge = entry?.result.status === "error" ? ERROR_RETRY_MS : REFRESH_MS;
     if ((entry && Date.now() - entry.at < maxAge) || inflight.has(key)) return;
     inflight.add(key);
-    cx.notify();
-    cx.spawn(async (cx) => {
-      const result = await load();
-      inflight.delete(key);
-      // A failed refresh keeps the last good list on screen.
-      const keepOld = result.status !== "success" && entry?.result.status === "success";
-      cacheSet(key, { result: keepOld ? entry.result : result, at: Date.now() });
-      if (result.status === "success" && key.startsWith("ln|") && session.meta.status !== "success") this.loadMeta(cx);
+    // A throw anywhere below still clears the key, so the spinner can't stick.
+    try {
       cx.notify();
-    });
+      cx.spawn(async (cx) => {
+        try {
+          const result = await load();
+          // A failed refresh keeps the last good list on screen.
+          const keepOld = result.status !== "success" && entry?.result.status === "success";
+          cacheSet(key, { result: keepOld ? entry.result : result, at: Date.now() });
+          if (result.status === "success" && key.startsWith("ln|") && session.meta.status !== "success") this.loadMeta(cx);
+        } finally {
+          inflight.delete(key);
+          cx.notify();
+        }
+      });
+    } catch (error) {
+      inflight.delete(key);
+      throw error;
+    }
   }
 
   loadMeta(cx) {
@@ -1318,11 +1333,12 @@ export default class Hub extends View {
   render(cx) {
     if (this.isMenu) return this.menuView();
     // Herdr re-renders on every space, tab or focus change: switch repos now instead of on the
-    // next tick. render may not notify, so the tick runs in a task, once per new folder.
+    // next tick. render may not notify, and spawn runs its body at once, so the task sleeps
+    // past this render before the tick (a notify inside render throws and strands the load).
     const folder = currentFolder();
     if (folder !== this.folder && folder !== this.pendingFolder) {
       this.pendingFolder = folder;
-      cx.spawn(async (cx) => { this.pendingFolder = undefined; this.tick(cx); });
+      cx.spawn(async (cx) => { await cx.sleep(0); this.pendingFolder = undefined; this.tick(cx); });
     }
     const t = theme();
     const tab = currentTab();
