@@ -26,7 +26,7 @@ Safe to run again. It replaces your keys and settings with mine.
 |---|---|
 | `layouts/gh44-herdr.json` | The layout, with its theme, panel widths and the plugins' changes |
 | `keys.json`, `settings.json` | Keys and settings |
-| `mods/` | My own mods: `hub` (GitHub and Linear work panel), `my-tabs` (tab bar), `git-changes` (git panel in the Changes slot, from aBER0724/herdr-git-changes) |
+| `mods/` | My own mods: `hub` (GitHub and Linear work panel), `my-tabs` (tab bar), `git-changes` (git panel in the Changes slot, from aBER0724/herdr-git-changes), `auto-title` (names tabs; its popup on `cmd-alt-t` installs the herdr-auto-title service, from kryptamine/herdr-auto-title) |
 | `plugins.txt` | Mods with their own installer: `<owner/repo> <mod prefix>` |
 | `install.sh` | Sets up this machine from the files here |
 | `sync.sh` | Copies the live layout, keys and settings back here |

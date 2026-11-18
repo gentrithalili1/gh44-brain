@@ -59,7 +59,8 @@
     "ctrl-8": "space.select:8",
     "ctrl-9": "space.select:9",
     "cmd-shift-g": "mod.open:gitview-sidebar",
-    "cmd-g": "mod.open:gitview-tab"
+    "cmd-g": "mod.open:gitview-tab",
+    "cmd-alt-t": "mod.open:auto-title"
   },
   "terminal": {
     "cmd-f": "terminal.search",
