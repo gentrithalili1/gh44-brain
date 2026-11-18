@@ -78,9 +78,45 @@ export function getMyReviewState({ pr, login }) {
   return pr.requestedUsers.includes(login) ? "rereview" : "reviewed";
 }
 
+// Whose move a PR is, in list order: mine first, then what others ask of me, drafts last.
+export const PULL_REQUEST_GROUPS = [
+  { id: "fix", label: "Needs fixing", tone: "danger" },
+  { id: "merge", label: "Ready to merge", tone: "success" },
+  { id: "rereview", label: "Review again", tone: "warning" },
+  { id: "review", label: "To review", tone: "warning" },
+  { id: "waiting", label: "Waiting on others", tone: "quiet" },
+  { id: "reviewed", label: "Already reviewed", tone: "neutral" },
+  { id: "draft", label: "Drafts", tone: "neutral" },
+];
+
+const isMyPullRequest = ({ pr, login }) => Boolean(login) && pr.author === login;
+
+export function getPullRequestGroup({ pr, login }) {
+  if (pr.isDraft) return "draft";
+  if (isMyPullRequest({ pr, login })) {
+    if (pr.hasConflicts || pr.ci === "failing" || pr.decision === "CHANGES_REQUESTED") return "fix";
+    if (pr.decision !== "REVIEW_REQUIRED" && pr.ci !== "pending") return "merge";
+    return "waiting";
+  }
+  const review = getMyReviewState({ pr, login });
+  if (review === "rereview") return "rereview";
+  if (review === "reviewed") return "reviewed";
+  return "review";
+}
+
+// Groups in PULL_REQUEST_GROUPS order, each keeping the search's order; empty groups left out.
+export function groupPullRequests({ items, login }) {
+  const byGroup = new Map();
+  for (const pr of items) {
+    const id = getPullRequestGroup({ pr, login });
+    byGroup.set(id, [...(byGroup.get(id) ?? []), pr]);
+  }
+  return PULL_REQUEST_GROUPS.filter((g) => byGroup.has(g.id)).map((g) => ({ ...g, items: byGroup.get(g.id) }));
+}
+
 // Only "already reviewed" is filtered here; everything else is in the search query.
-export function filterPullRequests({ items, filters, login, isShowingReviewed }) {
-  const hidesReviewed = isReviewScope(filters.scope) && !isShowingReviewed;
+export function filterPullRequests({ items, filters, login, isShowingReviewed, search = "" }) {
+  const hidesReviewed = isReviewScope(filters.scope) && !isShowingReviewed && !isGithubQuery(search);
   return items.filter((pr) => !(hidesReviewed && getMyReviewState({ pr, login }) === "reviewed"));
 }
 
@@ -107,7 +143,25 @@ const quote = (value) => `"${String(value).replace(/"/g, "")}"`;
 
 // GitHub advanced search for the filters. Picked authors or teams match any of them,
 // label:"a","b" matches either label. Newest first.
+// A search with a GitHub qualifier ("is:pr review-requested:me") is a query pasted from GitHub.
+const QUALIFIER = /^-?[a-z-]+:\S/i;
+export const isGithubQuery = (search) => search.trim().split(/\s+/).some((w) => QUALIFIER.test(w));
+
+// A pasted query runs as GitHub would run it, in the shown repo unless it names one;
+// the panel's scope and filters stay out of it.
+function buildPastedQuery({ repo, search }) {
+  const query = search.trim();
+  const has = (pattern) => pattern.test(query);
+  return [
+    has(/(^|\s)repo:|(^|\s)org:|(^|\s)user:/) ? null : `repo:${repo}`,
+    has(/(^|\s)(is|type):(pr|issue)\b/) ? null : "is:pr",
+    query,
+    has(/(^|\s)sort:/) ? null : SORT_TERM.newest,
+  ].filter(Boolean).join(" ");
+}
+
 export function buildPullRequestQuery({ repo, filters, search }) {
+  if (isGithubQuery(search)) return buildPastedQuery({ repo, search });
   const words = search.trim().split(/\s+/).filter(Boolean).map((w) => w.replace(/^#(\d+)$/, "$1").replace(/"/g, ""));
   return [
     `repo:${repo}`, "is:pr", "is:open",

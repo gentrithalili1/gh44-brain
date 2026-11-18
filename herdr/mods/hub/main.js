@@ -2,13 +2,13 @@
 // and a split button that starts a gh44 skill in a new Claude tab.
 // The same mod opened as a popup (props().menu) draws the dropdown menus.
 import { View, div, svg } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input, ScrollHandle } from "gpui-base";
+import { h_flex, v_flex, InputState, Input, ScrollHandle, HoverCard } from "gpui-base";
 import { theme, run, focused, layout, spaces, panes, shared, setShared, openOverlay, closeOverlay, props, checking, nextCommand, home, notify } from "herdr";
 import {
   GITHUB_DEFAULTS, LINEAR_DEFAULTS, GITHUB_SCOPES, LINEAR_SCOPES, CI_OPTIONS, PRIORITY_OPTIONS, UNASSIGNED,
   REVIEW_OPTIONS, SORT_OPTIONS, NO_ASSIGNEE,
   filterPullRequests, filterIssues, groupIssuesByState, toOptions, getAuthorOptions, buildIssueFilter, getProjectOptions, buildPullRequestQuery,
-  getMyReviewState, isReviewScope,
+  getMyReviewState, isReviewScope, groupPullRequests, isGithubQuery,
 } from "./filters.js";
 import {
   loadPullRequests, loadRepoName, loadRepoId, loadRepoLabels, loadRepoUsers, loadMyTeams, loadGithubLogin,
@@ -27,6 +27,7 @@ const STORE = {
   tab: "hub.tab",
   github: "hub.github.filters",
   linear: "hub.linear.filters",
+  collapsed: "hub.collapsed",
 };
 // GitHub filters are kept per repo ("hub.github.filters|<repo id>"); Linear's are shared.
 const isGithubStore = (store) => store.startsWith(STORE.github);
@@ -89,10 +90,31 @@ const AGENT_STATUS = {
   done: { label: "done", tone: "success" },
   idle: { label: "idle", tone: "neutral" },
 };
-const DECISION_TAG = {
-  APPROVED: { label: "Approved", tone: "success" },
-  CHANGES_REQUESTED: { label: "Changes requested", tone: "danger" },
+const DECISION_CHIP = {
+  APPROVED: { label: "approved", tone: "success" },
+  CHANGES_REQUESTED: { label: "changes requested", tone: "danger" },
 };
+const CI_CHIP_LABEL = { passing: "checks passing", failing: "checks failing", pending: "checks running" };
+// PR numbers in the terminal's font.
+const MONO_FONT = "Lilex";
+// A row's rail in its group's tone marks which group it belongs to.
+const RAIL_OPACITY = 0.7;
+// Side space of the panel's header, search and list.
+const GUTTER = 14;
+// A row's status icon and the gap after it; the chips line starts where the title does.
+const STATUS_ICON_SIZE = 14;
+const TITLE_GAP = 7;
+const TAB_BAR_HEIGHT = 42;
+// Chips on one line: their widths are estimated from the text, the overflow goes behind "+N".
+const HOVER_CARD_WIDTH = 300;
+const HOVER_CARD_DELAY_MS = 200;
+const CHIP_GAP = 4;
+const CHIP_PADDING = 14;
+const CHIP_CHAR_WIDTH = 6.4;
+const CHIP_ICON_SPACE = 15;
+const LABEL_DOT_SPACE = 12;
+const MORE_CHIP_WIDTH = 36;
+const estimateChipWidth = ({ text, extra = 0 }) => Math.ceil(String(text ?? "").length * CHIP_CHAR_WIDTH) + CHIP_PADDING + extra;
 
 // Module scope so results survive tab switches and new panel copies:
 // key -> { result, at }. A key is a repo + scope, or a Linear filter.
@@ -123,6 +145,12 @@ const getFilters = (store) => {
   return f;
 };
 const patchFilters = ({ store, patch }) => setShared(store, { ...getFilters(store), ...patch });
+// Group ids ("pr-fix", "ln-In Progress") whose rows are hidden; kept across reloads.
+const isCollapsed = (id) => (shared(STORE.collapsed) ?? []).includes(id);
+const toggleCollapsed = (id) => {
+  const ids = shared(STORE.collapsed) ?? [];
+  setShared(STORE.collapsed, ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+};
 const currentTab = () => (shared(STORE.tab) === "linear" ? "linear" : "github");
 
 // The shown space's repo folder: its focused terminal, else any terminal in the shown tab,
@@ -227,6 +255,8 @@ export default class Hub extends View {
       return;
     }
     this.selected = { github: null, linear: null };
+    // row id -> its chips line width, measured after layout.
+    this.chipLineWidths = new Map();
     this.visible = { github: [], linear: [] };
     this.isSearchFocused = false;
     this.isShowingReviewed = false;
@@ -441,7 +471,7 @@ export default class Hub extends View {
     switch (e.key) {
       case "j": case "down": move(1); break;
       case "k": case "up": move(-1); break;
-      case "enter": row?.primary(); break;
+      case "enter": row?.primary(cx); break;
       case "o": if (row) cx.open_url(row.url); break;
       case "/": (tab === "github" ? this.githubSearch : this.linearSearch).focus(); break;
       case "1": setShared(STORE.tab, "github"); break;
@@ -495,6 +525,16 @@ export default class Hub extends View {
       .when(isOn, (el) => el.child(div().px(5).rounded(8).bg(t.accent).text_color(t.accent_foreground).text_size(10.5).child(String(count))));
   }
 
+  // An agent's status as the agents sidebar draws it: a spinner while working, "!" when it
+  // needs you, a dot when done, a ring when idle.
+  agentMark(status) {
+    const t = theme();
+    if (status === "working") return svg("mods/workspace-chrome/spinner.svg").size(11).flex_none().text_color(t.working).spin(900);
+    if (status === "blocked") return div().size(13).flex_none().rounded(4).bg(`${t.blocked}26`).text_size(10).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+    if (status === "done") return div().size(7).mx(2).flex_none().rounded(4).bg(t.done ?? t.dim);
+    return div().size(7).mx(2).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+  }
+
   // [▶ plan | ▾]: the main part runs the row's next step, the chevron picks another.
   splitButton({ id, primary, menu, isOnSelected = false }) {
     const t = theme();
@@ -502,8 +542,8 @@ export default class Hub extends View {
     return h_flex().id(id).h(24).flex_none().items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_size(12)
       .child(h_flex().id(`${id}-run`).h_full().pl(7).pr(8).gap(5).items_center().rounded_l(6).cursor_pointer()
         .text_color(t.foreground).hover((s) => s.bg(hoverBg)).tooltip(primary.tip)
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); primary.run(); })
-        .child(svg(icon(primary.icon)).size(11).text_color(t.accent))
+        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); primary.run(cx); })
+        .child(primary.agentStatus ? this.agentMark(primary.agentStatus) : svg(icon(primary.icon)).size(11).text_color(t.accent))
         .child(primary.label)
         .when(Boolean(primary.worktreeBadge), (el) => el.child(div().px(4).rounded(4).bg(t.selected).text_color(t.accent).text_size(10.5).child(primary.worktreeBadge))))
       .child(div().w(1).h(14).bg(t.border))
@@ -513,38 +553,109 @@ export default class Hub extends View {
         .child(svg(icon("chevron")).size(12)));
   }
 
-  // A pill; with a url it opens that page (e.g. a ticket's PR on GitHub).
-  tag({ label, tone, url = null }) {
+  // A detail on a row: icon and text in its tone, on a raised surface. With a url it opens that page.
+  // `content` builds custom inner content; a function, since one chip can be drawn in two places.
+  chip({ id, label = null, content = null, tone = "quiet", iconName = null, tip = null, isMono = false, url = null }) {
     const t = theme();
     const color = palette(t)[tone];
-    const pill = div().id(`tag-${label}-${url ?? ""}`).flex_none().px(5).rounded(4).border(1).border_color(color).text_color(color).text_size(10.5).child(label);
-    if (!url) return pill;
-    return pill.cursor_pointer().tooltip("Open on GitHub").hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); cx.open_url(url); });
+    return h_flex().id(`chip-${id}`).flex_none().max_w(220).h(20).px(6).gap(4).items_center().rounded(5).bg(t.raised)
+      .text_size(11).text_color(color)
+      .when(Boolean(tip), (el) => el.tooltip(tip))
+      .when(Boolean(url), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); cx.open_url(url); }))
+      .when(Boolean(iconName), (el) => el.child(svg(icon(iconName)).size(11).flex_none().text_color(color)))
+      .child(content ? content() : div().truncate().when(isMono, (el) => el.font_family(MONO_FONT)).child(label));
   }
 
-  // One row shape for both tabs: status icon | title over ref · meta and tags | main button.
-  row({ id, status, badge = null, title, isTitleDim, ref, meta, diff = null, tags, primary, menu }) {
+  // The PR chip, first on both tabs: opens the PR on GitHub.
+  pullRequestChip({ id, url, branch = null }) {
+    return { id: `${id}-pr`, label: `#${url.split("/").pop()}`, iconName: "github", tone: "quiet", isMono: true, url, tip: branch ? `Open on GitHub · ${branch}` : "Open on GitHub" };
+  }
+
+  // One label: its chip, with a dot in the repo's or team's color.
+  labelChip({ id, name, color }) {
+    const content = () => h_flex().min_w(0).gap(5).items_center()
+      .child(div().flex_none().size(7).rounded(4).bg(color ?? theme().dim))
+      .child(div().truncate().child(name));
+    return { id, content, tone: "neutral", width: estimateChipWidth({ text: name, extra: LABEL_DOT_SPACE }) };
+  }
+
+  // One label shows as its chip. More show as "N labels"; hovering it shows each label's chip.
+  labelsChip({ id, labels, colors = {} }) {
+    if (labels.length === 0) return [];
+    if (labels.length === 1) return [this.labelChip({ id: `${id}-label`, name: labels[0], color: colors[labels[0]] })];
+    const each = labels.map((name) => this.labelChip({ id: `${id}-label-${name}`, name, color: colors[name] }));
+    const label = `${labels.length} labels`;
+    // In the "+N" card the labels show one by one instead of as a card in a card.
+    return [{ element: this.hoverChips({ id: `${id}-labels`, label, chips: each }), width: estimateChipWidth({ text: label }), expanded: each }];
+  }
+
+  // A chip that shows more chips in a card while hovered.
+  hoverChips({ id, label, chips }) {
     const t = theme();
-    const colors = palette(t);
+    const card = h_flex().max_w(HOVER_CARD_WIDTH).p(6).gap(4).flex_wrap().rounded(6).bg(t.popover).border(1).border_color(t.border)
+      .children(chips.map((c) => this.chip(c)));
+    return HoverCard.new(id).open_delay(HOVER_CARD_DELAY_MS).anchor("top_left")
+      .trigger(this.chip({ id, label, tone: "neutral" }))
+      .content(card);
+  }
+
+  // As many chips as fit on one line, in order (the first always); the rest behind a "+N" chip.
+  // The line's width is measured once laid out; until then every chip shows and the line clips.
+  fitChips({ id, chips }) {
+    const width = this.chipLineWidths.get(id);
+    if (width === undefined) return chips;
+    let used = 0;
+    for (const [index, c] of chips.entries()) {
+      const isLast = index === chips.length - 1;
+      used += (c.width ?? estimateChipWidth({ text: c.label, extra: c.iconName ? CHIP_ICON_SPACE : 0 })) + CHIP_GAP;
+      if (index > 0 && used + (isLast ? 0 : MORE_CHIP_WIDTH) > width) {
+        const hidden = chips.slice(index).flatMap((h) => h.expanded ?? [h]);
+        return [...chips.slice(0, index), { element: this.hoverChips({ id: `${id}-more`, label: `+${chips.length - index}`, chips: hidden }) }];
+      }
+    }
+    return chips;
+  }
+
+  // One row shape for both tabs: a card nested under its group's header, with a rail in the group's tone.
+  // Line 1: status icon and the title, full width. Line 2: chips and the main button.
+  row({ id, status, title, isTitleDim = false, chips, rail, primary, menu }) {
+    const t = theme();
     const tab = currentTab();
     const isSelected = this.selected[tab] === id;
-    return h_flex().id(`row-${id}`).flex_none().px(10).py(7).gap(8).items_center().border_b(1).border_color(t.border)
-      .bg(isSelected ? t.selected : t.background).hover((s) => s.bg(isSelected ? t.selected : t.surface))
+    return h_flex().id(`row-${id}`).flex_none().mx(GUTTER - 4).my(2).pl(6).pr(8).py(8).gap(8).rounded(6)
+      .bg(isSelected ? t.selected : t.surface)
       .on_click((_e, cx) => { this.selected[tab] = id; this.handle.focus(); cx.notify(); })
-      .child(div().flex_none().self_start().pt(2).tooltip(status.tip).child(svg(icon(status.icon)).size(14).text_color(status.color)))
-      .child(v_flex().flex_1().min_w(0).gap(3)
-        .child(div().truncate().text_color(isTitleDim ? t.muted : t.foreground).child(title))
-        .child(h_flex().gap(5).items_center().min_w(0).text_size(11.5).text_color(t.dim)
-          .when(Boolean(badge), (el) => el.child(div().flex_none().tooltip(badge.tip).child(svg(icon(badge.icon)).size(12).text_color(badge.color))))
-          .child(div().flex_none().child(ref))
-          .when(meta.length > 0, (el) => el.child(div().min_w(0).truncate().child(`· ${meta.join(" · ")}`)))
-          .when(Boolean(diff), (el) => el.child(h_flex().flex_none().gap(3)
-            .child(div().text_color(t.dim).child("·"))
-            .child(div().text_color(colors.success).child(`+${diff.additions}`))
-            .child(div().text_color(colors.danger).child(`−${diff.deletions}`))))
-          .children(tags.map((tg) => this.tag(tg)))))
-      .child(this.splitButton({ id: `run-${id}`, primary, menu, isOnSelected: isSelected }));
+      .child(div().w(2).flex_none().self_stretch().rounded(1).bg(palette(t)[rail]).opacity(RAIL_OPACITY))
+      .child(v_flex().flex_1().min_w(0).gap(6)
+        .child(h_flex().gap(TITLE_GAP).items_center().min_w(0)
+          .child(div().flex_none().tooltip(status.tip).child(svg(icon(status.icon)).size(STATUS_ICON_SIZE).text_color(status.color)))
+          .child(div().flex_1().min_w(0).truncate().text_size(13.5).font_medium().text_color(isTitleDim ? t.muted : t.foreground).child(title)))
+        .child(h_flex().pl(STATUS_ICON_SIZE + TITLE_GAP).gap(8).items_end().min_w(0)
+          .child(h_flex().id(`chips-${id}`).flex_1().min_w(0).overflow_hidden().gap(CHIP_GAP).items_center()
+            .on_size_change((size, cx) => {
+              if (Math.abs((this.chipLineWidths.get(id) ?? 0) - size.width) < 1) return;
+              this.chipLineWidths.set(id, size.width);
+              cx.notify();
+            })
+            .children(this.fitChips({ id, chips }).map((c) => c.element ?? this.chip(c))))
+          .child(this.splitButton({ id: `run-${id}`, primary, menu, isOnSelected: isSelected }))));
+  }
+
+  // A group's header: chevron, its icon or a dot in the group's tone, name and count, on a raised band.
+  // Clicking it collapses or expands the group.
+  listHeader({ id, label, count, tone, iconName = null }) {
+    const t = theme();
+    const color = palette(t)[tone];
+    const isClosed = isCollapsed(id);
+    return h_flex().id(`grp-${id}`).flex_none().mx(GUTTER - 4).mt(12).mb(4).px(9).h(30).gap(8).items_center().rounded(6).cursor_pointer()
+      .bg(t.raised).border(1).border_color(t.border).hover((s) => s.bg(t.hover))
+      .tooltip(isClosed ? "Show this group" : "Hide this group")
+      .on_click((_e, cx) => { toggleCollapsed(id); cx.notify(); })
+      .child(svg(icon(isClosed ? "chevron-right" : "chevron")).size(12).flex_none().text_color(t.muted))
+      .child(iconName ? svg(icon(iconName)).size(13).text_color(color) : div().size(8).rounded(4).bg(color))
+      .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(label))
+      .child(div().px(6).rounded(8).bg(t.background).text_size(11).text_color(t.muted).child(String(count)));
   }
 
   message({ title, body, action }) {
@@ -599,7 +710,7 @@ export default class Hub extends View {
 
   // An agent already on it: open it. Else resume a space on its branch, else start the next skill.
   primaryFor({ agent, branch, skill, target, isWorktree, isBackground = false, start = null, canAsk = false }) {
-    if (agent) return { label: "open", icon: "resume", tip: `Go to ${agent.tab_name} (${AGENT_STATUS[agent.status]?.label ?? agent.status})`, run: () => focusAgent(agent) };
+    if (agent) return { label: "open", icon: "resume", agentStatus: agent.status, tip: `Go to ${agent.tab_name} (${AGENT_STATUS[agent.status]?.label ?? agent.status})`, run: () => focusAgent(agent) };
     const space = findSpaceOnBranch(branch);
     if (space) return { label: "resume", icon: "resume", tip: `Go to ${space.name}`, run: () => run("space.select", { id: space.id }) };
     const worktreeTip = `/${skill} in this ticket's worktree (${target.worktree?.split("/").pop()})`;
@@ -610,11 +721,6 @@ export default class Hub extends View {
       tip: isWorktree ? worktreeTip : canAsk ? `/${skill}: asks first, new worktree or this space` : isBackground ? `/${skill} in a background tab` : `/${skill} in a new tab here`,
       run: start ?? (() => startSkill({ skill, target, isWorktree, isBackground })),
     };
-  }
-
-  agentTag(agent) {
-    const status = agent ? AGENT_STATUS[agent.status] : null;
-    return status && agent.status !== "idle" ? [{ label: `● ${status.label}`, tone: status.tone }] : [];
   }
 
   githubStore() {
@@ -673,29 +779,57 @@ export default class Hub extends View {
 
   // ---------- GitHub ----------
 
-  pullRequestEntry(pr) {
+  pullRequestEntry({ pr, group }) {
     const colors = palette(theme());
     const skill = getDefaultGithubSkill({ pr, login: session.login });
     const target = { ref: pr.url, label: `#${pr.number}`, folder: this.folder };
     const ci = CI_STATUS[pr.ci];
-    const review = getMyReviewState({ pr, login: session.login });
     const agent = findAgentFor({ label: target.label, branch: pr.branch });
-    // Reviews run in a background tab, so several can start in a row.
-    const primary = this.primaryFor({ agent, branch: pr.branch, skill, target, isWorktree: false, isBackground: true });
-    const tags = [
-      ...this.agentTag(agent),
-      ...(pr.isDraft ? [{ label: "Draft", tone: "neutral" }] : []),
-      ...(review === "rereview" ? [{ label: "Re-review", tone: "warning" }] : []),
-      ...(DECISION_TAG[pr.decision] ? [DECISION_TAG[pr.decision]] : []),
-    ];
+    // Ready to merge: merging happens on GitHub. Else reviews run in a background tab, so several can start in a row.
+    const primary = group.id === "merge" && !agent
+      ? { label: "merge", icon: "github", tip: "Open on GitHub to merge", run: (cx) => cx.open_url(pr.url) }
+      : this.primaryFor({ agent, branch: pr.branch, skill, target, isWorktree: false, isBackground: true });
     const element = this.row({
-      id: pr.id, title: pr.title, isTitleDim: pr.isDraft, ref: `#${pr.number}`, tags, primary,
+      id: pr.id, title: pr.title, isTitleDim: pr.isDraft, primary, rail: group.tone,
       status: { icon: `ci-${pr.ci}`, color: colors[ci.tone], tip: ci.tip },
-      meta: [pr.author, formatAge(pr.createdAt)].filter(Boolean),
-      diff: { additions: pr.additions, deletions: pr.deletions },
+      chips: this.pullRequestChips({ pr, group }),
       menu: { skills: GITHUB_SKILLS, target, isBackground: true, links: [{ id: "github", label: "Open in GitHub", icon: "github", url: pr.url }] },
     });
     return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
+  }
+
+  // PR · author and age · conflicts · checks · review · size · labels
+  pullRequestChips({ pr, group }) {
+    const colors = palette(theme());
+    const id = pr.number;
+    const ci = CI_STATUS[pr.ci];
+    const decision = DECISION_CHIP[pr.decision];
+    return [
+      this.pullRequestChip({ id, url: pr.url, branch: pr.branch }),
+      ...(pr.author ? [{ id: `${id}-author`, label: `${pr.author} · ${formatAge(pr.createdAt)}`, tone: "quiet", tip: `Opened by ${pr.author}` }] : []),
+      ...(pr.hasConflicts ? [{ id: `${id}-conflicts`, label: "conflicts", tone: "danger" }] : []),
+      ...(CI_CHIP_LABEL[pr.ci] ? [{ id: `${id}-ci`, label: CI_CHIP_LABEL[pr.ci], iconName: `ci-${pr.ci}`, tone: ci.tone }] : []),
+      ...(group.id === "rereview" ? [{ id: `${id}-rereview`, label: "asked again", tone: "warning" }] : []),
+      ...(decision ? [{ id: `${id}-decision`, ...decision }] : []),
+      {
+        id: `${id}-diff`,
+        width: estimateChipWidth({ text: `+${pr.additions} −${pr.deletions}` }),
+        content: () => h_flex().gap(4)
+          .child(div().text_color(colors.success).child(`+${pr.additions}`))
+          .child(div().text_color(colors.danger).child(`−${pr.deletions}`)),
+      },
+      ...this.labelsChip({ id, labels: pr.labels, colors: pr.labelColors }),
+    ];
+  }
+
+  // The shown repo above the list; opens it on GitHub.
+  repoLink(repo) {
+    const t = theme();
+    return h_flex().px(GUTTER - 6).pt(10).pb(2).child(h_flex().id("repo-link").min_w(0).px(6).py(3).gap(6).items_center().rounded(5).cursor_pointer()
+      .text_size(12.5).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open on GitHub")
+      .on_click((_e, cx) => cx.open_url(`https://github.com/${repo}`))
+      .child(svg(icon("github")).size(13).flex_none())
+      .child(div().truncate().child(repo)));
   }
 
   githubView() {
@@ -708,13 +842,14 @@ export default class Hub extends View {
     const result = fresh ?? (this.lastGithub && this.lastGithub.repoId === this.repoId ? this.lastGithub.result : undefined);
     const items = result?.items ?? [];
     const search = this.githubSearch.value();
-    const shown = filterPullRequests({ items, filters: f, login: session.login, isShowingReviewed: this.isShowingReviewed });
+    const isPasted = isGithubQuery(this.committedSearch);
+    const shown = filterPullRequests({ items, filters: f, login: session.login, isShowingReviewed: this.isShowingReviewed, search: this.committedSearch });
     const org = repoNames.get(this.repoId)?.split("/")[0];
     const teamOptions = [...new Map([
       ...f.teams.map((value) => [value, value.split("/").pop()]),
       ...(myTeams.get(org) ?? []).map((team) => [team.value, team.label]),
     ]).entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-    const reviewedCount = isReviewScope(f.scope) ? items.filter((pr) => getMyReviewState({ pr, login: session.login }) === "reviewed").length : 0;
+    const reviewedCount = isReviewScope(f.scope) && !isPasted ? items.filter((pr) => getMyReviewState({ pr, login: session.login }) === "reviewed").length : 0;
     const defs = [
       { title: "Author", field: "authors", isMulti: true, options: getAuthorOptions({ users: repoUsers.get(this.repoId) ?? [], logins: [...items.map((p) => p.author), ...f.authors] }) },
       { title: "Label", field: "labels", isMulti: true, options: toOptions([...(repoLabels.get(this.repoId) ?? []), ...f.labels]) },
@@ -732,9 +867,23 @@ export default class Hub extends View {
       source: result, label: "GitHub", shownCount: shown.length, onClear: handleClear,
       hasFilters: defs.some((def) => countPicked({ store, def }) > 0) || search.trim() !== "",
     });
-    const entries = shown.map((pr) => this.pullRequestEntry(pr));
-    const notes = this.cleanupNote();
-    this.visible.github = entries.map((e, index) => ({ ...e, index: index + notes.length }));
+    // Notes, headers and rows side by side, so a row's child index is known for scrolling.
+    const elements = [
+      ...this.cleanupNote(),
+      ...(isPasted ? [this.note({ id: "gh-pasted", text: "Running your GitHub query as is. Show and Filters are off until you clear it." })] : []),
+    ];
+    const selectable = [];
+    for (const group of groupPullRequests({ items: shown, login: session.login })) {
+      const headerId = `pr-${group.id}`;
+      elements.push(this.listHeader({ id: headerId, label: group.label, count: group.items.length, tone: group.tone }));
+      if (isCollapsed(headerId)) continue;
+      for (const pr of group.items) {
+        const entry = this.pullRequestEntry({ pr, group });
+        selectable.push({ ...entry, index: elements.length });
+        elements.push(entry.element);
+      }
+    }
+    this.visible.github = selectable;
     const repo = repoNames.get(this.repoId);
     const footer = [
       ...(reviewedCount > 0 ? [this.note({
@@ -749,10 +898,10 @@ export default class Hub extends View {
       })] : []),
     ];
     return v_flex().flex_1().min_h(0)
-      .child(v_flex().px(10).pb(4).gap(6).border_b(1).border_color(t.border)
+      .child(v_flex().px(GUTTER).pt(12).pb(12).gap(6).border_b(1).border_color(t.border)
         .child(this.searchRow({ store, scopeDef: { title: "Show", field: "scope", isMulti: false, options: GITHUB_SCOPES }, state: this.githubSearch, defs })))
-      .when(Boolean(repo), (el) => el.child(div().px(10).pt(6).pb(2).text_size(11).text_color(t.dim).truncate().child(repo)))
-      .child(this.list({ id: "gh-list", state, entries: [...notes, ...entries.map((e) => e.element), ...footer] }));
+      .when(Boolean(repo), (el) => el.child(this.repoLink(repo)))
+      .child(this.list({ id: "gh-list", state, entries: [...elements, ...footer] }));
   }
 
   // ---------- Linear ----------
@@ -772,24 +921,21 @@ export default class Hub extends View {
     const menu = { skills: LINEAR_SKILLS, target, isTicket: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] };
     const primary = this.primaryFor({ agent, branch: issue.branch, skill, target, isWorktree: Boolean(worktree), canAsk: shouldAskWhere({ skill, target }), start: () => startTicketSkill({ skill, menu }) });
     const priority = PRIORITY_OPTIONS.find((p) => p.value === issue.priority);
+    const id = issue.identifier;
     const element = this.row({
-      id: issue.id, title: issue.title, ref: issue.identifier, primary,
-      badge: issue.priority > 0 ? { icon: `priority-${issue.priority}`, color: issue.priority === URGENT ? colors.danger : colors.quiet, tip: priority?.label ?? "" } : null,
+      id: issue.id, title: issue.title, primary, rail: STAGE_STATUS[stage],
       status: { icon: `state-${stage}`, color: colors[STAGE_STATUS[stage]], tip: issue.state },
-      meta: [issue.project, showAssignee ? (issue.assignee ?? UNASSIGNED) : null, issue.labels[0]].filter(Boolean),
-      tags: [...this.agentTag(agent), ...(issue.prUrl ? [{ label: `PR #${issue.prUrl.split("/").pop()}`, tone: "quiet", url: issue.prUrl }] : [])],
+      chips: [
+        { id: `${id}-ref`, label: issue.identifier, iconName: "linear", tone: "quiet", isMono: true, url: issue.url, tip: "Open in Linear" },
+        ...(issue.prUrl ? [this.pullRequestChip({ id, url: issue.prUrl })] : []),
+        ...(issue.priority > 0 ? [{ id: `${id}-priority`, label: priority?.label ?? "", iconName: `priority-${issue.priority}`, tone: issue.priority === URGENT ? "danger" : "quiet" }] : []),
+        ...(issue.project ? [{ id: `${id}-project`, label: issue.project, tone: "neutral" }] : []),
+        ...this.labelsChip({ id, labels: issue.labels, colors: issue.labelColors }),
+        ...(showAssignee ? [{ id: `${id}-assignee`, label: issue.assignee ?? UNASSIGNED, tone: "neutral" }] : []),
+        ],
       menu,
     });
     return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startTicketSkill({ skill: s, menu }) };
-  }
-
-  groupHeader(group) {
-    const t = theme();
-    const stage = getIssueStage(group.items[0]);
-    return h_flex().id(`grp-${group.state}`).flex_none().px(10).pt(10).pb(4).gap(6).items_center()
-      .text_size(11).font_semibold().text_color(t.muted)
-      .child(svg(icon(`state-${stage}`)).size(12).text_color(palette(t)[STAGE_STATUS[stage]]))
-      .child(`${group.state} · ${group.items.length}`);
   }
 
   linearView() {
@@ -817,7 +963,10 @@ export default class Hub extends View {
     const elements = [...this.cleanupNote()];
     const selectable = [];
     for (const group of groupIssuesByState(shown)) {
-      elements.push(this.groupHeader(group));
+      const stage = getIssueStage(group.items[0]);
+      const headerId = `ln-${group.state}`;
+      elements.push(this.listHeader({ id: headerId, label: group.state, count: group.items.length, tone: STAGE_STATUS[stage], iconName: `state-${stage}` }));
+      if (isCollapsed(headerId)) continue;
       for (const issue of group.items) {
         const entry = this.issueEntry({ issue, showAssignee: !f.mine });
         selectable.push({ ...entry, index: elements.length });
@@ -827,7 +976,7 @@ export default class Hub extends View {
     this.visible.linear = selectable;
     if (result?.isCapped) elements.push(this.note({ id: "ln-cap", text: "Showing the 100 most recently updated. Narrow the filters to see more." }));
     return v_flex().flex_1().min_h(0)
-      .child(v_flex().px(10).pb(4).gap(6).border_b(1).border_color(t.border)
+      .child(v_flex().px(GUTTER).pt(12).pb(12).gap(6).border_b(1).border_color(t.border)
         .child(this.searchRow({ store, scopeDef: { title: "Show", field: "mine", isMulti: false, options: LINEAR_SCOPES }, state: this.linearSearch, defs })))
       .child(this.list({ id: "ln-list", state, entries: elements }));
   }
@@ -1030,14 +1179,17 @@ export default class Hub extends View {
 
   // ---------- panel ----------
 
+  // A main tab: icon, name and count pill, with an accent underline when shown.
   tabButton({ id, label, iconName, count, isOn }) {
     const t = theme();
-    return h_flex().id(`tab-${id}`).h(26).px(10).gap(6).items_center().rounded(6).text_size(12.5).cursor_pointer()
-      .bg(isOn ? t.selected : t.background).text_color(isOn ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
-      .on_click(() => setShared(STORE.tab, id))
-      .child(svg(icon(iconName)).size(13))
-      .child(label)
-      .when(count !== null, (el) => el.child(div().text_size(11).text_color(t.dim).child(String(count))));
+    return v_flex().id(`tab-${id}`).h_full().px(4).cursor_pointer().on_click(() => setShared(STORE.tab, id))
+      .child(h_flex().flex_1().px(8).gap(7).items_center().text_size(13.5).font_medium()
+        .text_color(isOn ? t.foreground : t.muted).hover((s) => s.text_color(t.foreground))
+        .child(svg(icon(iconName)).size(15))
+        .child(label)
+        .when(count !== null, (el) => el.child(div().px(6).rounded(8).text_size(11)
+          .bg(isOn ? t.accent : t.raised).text_color(isOn ? t.accent_foreground : t.muted).child(String(count)))))
+      .child(div().h(2).w_full().rounded(1).bg(isOn ? t.accent : t.surface));
   }
 
   render() {
@@ -1052,15 +1204,15 @@ export default class Hub extends View {
     return v_flex().id("hub").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
       .track_focus(this.handle).on_key_down((e, cx) => this.handleKey(e, cx))
-      .child(h_flex().px(10).py(8).gap(4).items_center()
+      .child(h_flex().flex_none().h(TAB_BAR_HEIGHT).px(GUTTER - 4).gap(2).items_end().bg(t.surface).border_b(1).border_color(t.border)
         .child(this.tabButton({ id: "github", label: "GitHub", iconName: "github", count: countOf(this.githubKey), isOn: tab === "github" }))
         .child(this.tabButton({ id: "linear", label: "Linear", iconName: "linear", count: countOf(this.linearKey), isOn: tab === "linear" }))
         .child(div().flex_1())
-        .child(div().id("hub-refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
+        .child(div().id("hub-refresh").self_center().size(26).flex().items_center().justify_center().rounded(6).cursor_pointer()
           .text_color(t.muted).hover((s) => s.bg(t.hover)).tooltip("Refresh")
           .on_click((_e, cx) => this.handleRefresh(cx))
           .child(isLoading ? svg("mods/workspace-chrome/spinner.svg").size(14).text_color(t.working).spin(900) : svg(icon("refresh")).size(14))))
       .child(tab === "github" ? this.githubView() : this.linearView())
-      .child(div().flex_none().px(10).py(5).border_t(1).border_color(t.border).text_size(10.5).text_color(t.dim).truncate().child(KEY_HINTS[tab]));
+      .child(div().flex_none().px(GUTTER).py(6).border_t(1).border_color(t.border).text_size(10.5).text_color(t.dim).truncate().child(KEY_HINTS[tab]));
   }
 }

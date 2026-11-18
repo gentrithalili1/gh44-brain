@@ -12,7 +12,7 @@ const ISSUES_QUERY = `query($filter: IssueFilter, $first: Int) {
       team { id key }
       project { id name }
       assignee { name isMe }
-      labels { nodes { name } }
+      labels { nodes { name color } }
       attachments(first: 10) { nodes { url } }
     }
   }
@@ -39,6 +39,7 @@ const toIssue = (n) => ({
   project: n.project?.name ?? null,
   assignee: n.assignee?.name ?? null,
   labels: (n.labels?.nodes ?? []).map((l) => l.name),
+  labelColors: Object.fromEntries((n.labels?.nodes ?? []).map((l) => [l.name, l.color])),
   // The newest GitHub PR attached to the issue, if any.
   prUrl: (n.attachments?.nodes ?? []).map((a) => a.url).filter((u) => /github\.com\/.+\/pull\/\d+/.test(u)).at(-1) ?? null,
 });

@@ -12,10 +12,10 @@ const SEARCH_QUERY = `query($q: String!, $first: Int!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
-        number title url isDraft createdAt additions deletions reviewDecision headRefName
+        number title url isDraft createdAt additions deletions reviewDecision headRefName mergeable
         author { login }
         assignees(first: 5) { nodes { login } }
-        labels(first: 5) { nodes { name } }
+        labels(first: 5) { nodes { name color } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name combinedSlug } } } }
         latestReviews(first: 10) { nodes { author { login } } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -37,7 +37,10 @@ const toPullRequest = (pr) => {
     assignees: (pr.assignees?.nodes ?? []).map((a) => a.login),
     branch: pr.headRefName,
     isDraft: pr.isDraft,
+    hasConflicts: pr.mergeable === "CONFLICTING",
     labels: (pr.labels?.nodes ?? []).map((l) => l.name),
+    // GitHub gives a label's color as hex without the "#".
+    labelColors: Object.fromEntries((pr.labels?.nodes ?? []).map((l) => [l.name, `#${l.color}`])),
     ci: CI_BY_ROLLUP[pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",
     requestedUsers: requested.filter((r) => r.login).map((r) => r.login),
     requestedTeams: requested.filter((r) => r.combinedSlug).map((r) => ({ value: r.combinedSlug, label: r.name })),

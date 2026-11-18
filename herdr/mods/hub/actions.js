@@ -53,8 +53,11 @@ export function focusAgent(agent) {
 
 export const shortSkill = (skill) => skill.replace(/^gh44-/, "");
 
-// Another author's PR gets a review; mine gets the review comments addressed.
-export const getDefaultGithubSkill = ({ pr, login }) => (login && pr.author === login ? "gh44-address-review" : "gh44-code-review");
+// Another author's PR gets a review; mine gets its conflicts resolved, else its review addressed.
+export function getDefaultGithubSkill({ pr, login }) {
+  if (!login || pr.author !== login) return "gh44-code-review";
+  return pr.hasConflicts ? "gh44-resolve-conflicts" : "gh44-address-review";
+}
 
 // target: { ref (what the skill gets), prRef? (for PR skills), label (tab name prefix),
 //   branch?, folder?, main? (the repo's main checkout), worktree? (an existing checkout of the branch),
