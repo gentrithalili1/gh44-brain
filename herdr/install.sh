@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sets up the Herdr app as recorded here: gh44 themes, own mods, gh44-files, keys, settings,
-# the gh44-herdr layout and every plugin in plugins.txt. Safe to run again.
+# Sets up the Herdr app as recorded here: gh44 themes, own mods, gh44-files, the mods in mods.txt,
+# keys, settings, the gh44-herdr layout and every plugin in plugins.txt. Safe to run again.
 # The Herdr app must be open.
 set -euo pipefail
 
@@ -65,6 +65,19 @@ else
 fi
 herdr-app check "$FILES_MOD" > /dev/null || die "herdr-app check failed for gh44-files"
 
+# 2c. Third-party mods without an installer (mods.txt), copied fresh from GitHub on every run.
+grep -v '^\s*#' "$HERE/mods.txt" | awk 'NF' | while read -r repo path name; do
+  tmp=$(mktemp -d)
+  curl -fsSL "https://codeload.github.com/$repo/tar.gz/main" | tar -xz -C "$tmp" || die "could not download $repo"
+  source=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d)/$path
+  [ -d "$source" ] || die "$repo has no $path"
+  rm -rf "${APP_HOME:?}/mods/$name"
+  cp -R "$source" "$APP_HOME/mods/$name"
+  rm -rf "$tmp"
+  herdr-app check "$APP_HOME/mods/$name" > /dev/null || die "herdr-app check failed for $name"
+  echo "mod: $name from $repo"
+done
+
 # 3. Keys, settings and the layout.
 place "$HERE/keys.json" "$APP_HOME/keys.json"
 place "$HERE/settings.json" "$APP_HOME/settings.json"
@@ -78,12 +91,12 @@ grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $1 }' | while read -r repo
   curl -fsSL "https://raw.githubusercontent.com/$repo/main/install.sh" | sh -s -- --app
 done
 
-# 4b. A plugin above may claim the Changes slot; it shows git-changes.
+# 4b. A plugin above may claim the Changes slot; it shows tabbed-changes.
 LAYOUT_FILE="$APP_HOME/layouts/$LAYOUT.json"
-jq 'def fix: if type == "object" then (if .id == "changes" and .type == "block" then .content = {"mod": "git-changes"} else . end) | with_entries(.value |= fix) elif type == "array" then map(fix) else . end; fix' \
+jq 'def fix: if type == "object" then (if .id == "changes" and .type == "block" then .content = {"mod": "tabbed-changes"} else . end) | with_entries(.value |= fix) elif type == "array" then map(fix) else . end; fix' \
   "$LAYOUT_FILE" > "$LAYOUT_FILE.tmp"
 mv "$LAYOUT_FILE.tmp" "$LAYOUT_FILE"
-echo "changes slot: git-changes"
+echo "changes slot: tabbed-changes"
 
 # 5. Nothing left in error.
 errors=$(herdr-app status | jq -c '.errors')

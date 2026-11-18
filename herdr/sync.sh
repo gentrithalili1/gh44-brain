@@ -18,12 +18,14 @@ echo "synced: layouts/$LAYOUT.json keys.json settings.json"
 
 shipped=$(jq -r 'keys[]' "$APP_HOME/installed.json")
 prefixes=$(grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $2 }')
+copied=$(grep -v '^\s*#' "$HERE/mods.txt" | awk 'NF { print $3 }')
 unknown=()
 for dir in "$APP_HOME"/mods/*/; do
   name=$(basename "$dir")
   [ -L "${dir%/}" ] && continue
   grep -qxF "$name" <<< "$shipped" && continue
   grep -qxF "$name" <<< "$(tr ' ' '\n' <<< "$BUILT_MODS")" && continue
+  grep -qxF "$name" <<< "$copied" && continue
   match=
   for prefix in $prefixes; do
     case $name in "$prefix" | "$prefix"-*) match=1 ;; esac
@@ -34,5 +36,6 @@ if [ "${#unknown[@]}" -gt 0 ]; then
   echo "not recorded: ${unknown[*]}" >&2
   echo "  your own mod: move it to herdr/mods/ and run install.sh to link it" >&2
   echo "  a plugin: add its repo to plugins.txt" >&2
+  echo "  a mod without an installer: add <owner/repo> <folder> <name> to mods.txt" >&2
   exit 1
 fi

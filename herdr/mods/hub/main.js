@@ -238,7 +238,13 @@ export default class Hub extends View {
       this.isMenu = true;
       this.expanded = null;
       this.menuSearch = InputState.new({ placeholder: "Search" });
-      this.menuSearch.on("change", (_e, cx) => { this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0; cx.notify(); });
+      // A search shrinks the list, so it scrolls back to the top; a kept offset would show it empty.
+      this.menuSearch.on("change", (_e, cx) => {
+        this.menuIndex = this.expanded ? this.firstOptionIndex ?? 0 : 0;
+        this.optionScroll.scroll_to_item(0);
+        this.menuScroll.scroll_to_item(0);
+        cx.notify();
+      });
       this.menuItems = [];
       const isKeyboardMenu = Boolean(props().menu.skills || props().menu.isFilterList);
       this.resetMenuStep();
