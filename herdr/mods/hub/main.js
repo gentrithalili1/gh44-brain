@@ -90,7 +90,7 @@ const AGENT_STATUS = {
   done: { label: "done", tone: "success" },
   idle: { label: "idle", tone: "neutral" },
 };
-// The review status, right after the PR number so it never folds into "+N".
+// The review status, right after the author so it rarely folds into "+N".
 // No decision (GitHub leaves it out for some PRs) still needs a review, like REVIEW_REQUIRED.
 const DECISION_CHIP = {
   APPROVED: { label: "approved", tone: "success" },
@@ -826,7 +826,7 @@ export default class Hub extends View {
     return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
   }
 
-  // PR · review status · author and age · conflicts · checks · size · labels
+  // PR · author and age · review status · conflicts · checks · size · labels
   pullRequestChips({ pr, group }) {
     const colors = palette(theme());
     const id = pr.number;
@@ -834,8 +834,8 @@ export default class Hub extends View {
     const decision = pr.isDraft ? null : DECISION_CHIP[pr.decision] ?? NEEDS_REVIEW_CHIP;
     return [
       this.pullRequestChip({ id, url: pr.url, branch: pr.branch }),
-      ...(decision ? [{ id: `${id}-decision`, ...decision }] : []),
       ...(pr.author ? [{ id: `${id}-author`, label: `${pr.author} · ${formatAge(pr.createdAt)}`, tone: "quiet", tip: `Opened by ${pr.author}` }] : []),
+      ...(decision ? [{ id: `${id}-decision`, ...decision }] : []),
       ...(pr.hasConflicts ? [{ id: `${id}-conflicts`, label: "conflicts", tone: "danger" }] : []),
       ...(CI_CHIP_LABEL[pr.ci] ? [{ id: `${id}-ci`, label: CI_CHIP_LABEL[pr.ci], iconName: `ci-${pr.ci}`, tone: ci.tone }] : []),
       ...(group.id === "rereview" ? [{ id: `${id}-rereview`, label: "asked again", tone: "warning" }] : []),
