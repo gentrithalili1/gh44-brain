@@ -95,7 +95,8 @@ export function getPullRequestGroup({ pr, login }) {
   if (pr.isDraft) return "draft";
   if (isMyPullRequest({ pr, login })) {
     if (pr.hasConflicts || pr.ci === "failing" || pr.decision === "CHANGES_REQUESTED") return "fix";
-    if (pr.decision !== "REVIEW_REQUIRED" && pr.ci !== "pending") return "merge";
+    // Only an approval counts: GitHub gives no decision (null) for some PRs that still need one.
+    if (pr.decision === "APPROVED" && pr.ci !== "pending") return "merge";
     return "waiting";
   }
   const review = getMyReviewState({ pr, login });
