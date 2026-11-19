@@ -903,7 +903,7 @@ export default class Hub extends View {
 
   // The confirm dialog for removing some merged worktrees; its confirm runs `hub.cleanup`.
   openCleanup(items) {
-    pendingCleanup = { main: this.repoMain(), machine: activeMachine(), items };
+    pendingCleanup = { main: this.repoMain(), repoId: this.repoId, machine: activeMachine(), items };
     const names = items.map((w) => `${worktreeName(w).key} (PR #${w.pr})`).join(", ");
     openOverlay({
       mod: "confirm", kind: "dialog", width: 460, height: 230,
@@ -923,21 +923,28 @@ export default class Hub extends View {
     const inside = (folder, path) => folder === path || folder?.startsWith(`${path}/`);
     const removed = [];
     const skipped = [];
+    const removedPaths = new Set();
     for (const w of job.items) {
       const tabsInside = new Set(panes().filter((p) => inside(p.cwd, w.path)).map((p) => p.tab));
       for (const space of spaces().filter((sp) => inside(sp.folder, w.path) || (sp.tabs ?? []).some((tab) => tabsInside.has(tab.id)))) {
         run("space.close", { id: space.id, confirmed: true });
       }
       const result = await removeWorktree({ main: job.main, path: w.path, branch: w.branch, machine: job.machine });
-      (result.status === "removed" ? removed : skipped).push(w.path.split("/").pop());
+      if (result.status === "removed") removedPaths.add(w.path);
+      (result.status === "removed" ? removed : skipped).push(worktreeName(w).key);
     }
     notify({
       title: removed.length ? `Cleaned up ${removed.join(", ")}` : "Nothing cleaned up",
       body: skipped.length ? `Skipped (uncommitted changes): ${skipped.join(", ")}` : undefined,
       level: skipped.length ? "warning" : "success",
     });
-    const entry = cache.get(`wt|${this.repoId}`);
-    if (entry) cacheSet(`wt|${this.repoId}`, { ...entry, at: 0 });
+    // Drop the removed ones from the list now; the refetch takes a few seconds.
+    const key = `wt|${job.repoId}`;
+    const entry = cache.get(key);
+    if (entry?.result.status === "success") {
+      const keep = (w) => !removedPaths.has(w.path);
+      cacheSet(key, { at: 0, result: { ...entry.result, items: entry.result.items.filter(keep), merged: entry.result.merged.filter(keep) } });
+    }
     cx.notify();
   }
 
