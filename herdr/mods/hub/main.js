@@ -145,6 +145,8 @@ const repoNameCheckedAt = new Map();
 const myTeams = new Map();
 // The merged worktrees the open Clean up dialog is about; its confirm runs `hub.cleanup`.
 let pendingCleanup = null;
+// Merged worktree paths being removed right now: their rows show a spinner.
+const removing = new Set();
 // A skill picked in a popup; the panel runs it (`hub.start`), since a closed popup's
 // async work (creating a worktree) would be cancelled.
 let pendingStart = null;
@@ -881,7 +883,11 @@ export default class Hub extends View {
       .child(svg(icon("branch")).size(15).flex_none().text_color(done))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_semibold().text_color(t.foreground)
         .child(`${count} worktree${count === 1 ? " is" : "s are"} merged`))
-      .child(button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", variant: "primary", onClick: () => this.openCleanup(merged) }))
+      .child(merged.some((w) => removing.has(w.path))
+        ? h_flex().id("wt-merged-all").flex_none().w(88).h(24).gap(6).items_center().justify_center().rounded(6)
+          .bg(done + "33").text_size(12).font_semibold().text_color(done)
+          .child(svg("mods/workspace-chrome/spinner.svg").size(12).spin(900)).child("Removing")
+        : button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", variant: "primary", onClick: () => this.openCleanup(merged) }))
       .child(div().id("wt-merged-dismiss").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
         .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Hide until another worktree merges")
         .on_click((_e, cx) => { cx.stop_propagation(); handleDismiss(cx); })
@@ -895,10 +901,13 @@ export default class Hub extends View {
           .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(title))
           .child(div().flex_none().text_size(11.5).text_color(t.dim).child(`#${w.pr}`)))
         // A red ✕ in the banner ✕'s column: removes this one worktree.
-        .child(div().id(`wt-remove-${w.path}`).flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
-          .bg(rose + "1f").text_color(rose).hover((s) => s.bg(rose + "40")).tooltip(`Remove ${key}`)
-          .on_click((_e, cx) => { cx.stop_propagation(); this.openCleanup([w]); })
-          .child(svg(icon("x")).size(13)));
+        .child(removing.has(w.path)
+          ? div().id(`wt-remove-${w.path}`).flex_none().size(24).flex().items_center().justify_center().tooltip(`Removing ${key}…`)
+            .child(svg("mods/workspace-chrome/spinner.svg").size(14).text_color(rose).spin(900))
+          : div().id(`wt-remove-${w.path}`).flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
+            .bg(rose + "1f").text_color(rose).hover((s) => s.bg(rose + "40")).tooltip(`Remove ${key}`)
+            .on_click((_e, cx) => { cx.stop_propagation(); this.openCleanup([w]); })
+            .child(svg(icon("x")).size(13)));
     };
     return [v_flex().id("wt-merged").flex_none().mx(GUTTER - 4).mt(8).rounded(8).overflow_hidden()
       .bg(done + "1f").border(1).border_color(done + "59")
@@ -926,32 +935,43 @@ export default class Hub extends View {
     pendingCleanup = null;
     if (!job) return;
     const inside = (folder, path) => folder === path || folder?.startsWith(`${path}/`);
+    const key = `wt|${job.repoId}`;
+    // A removed worktree leaves the list at once; the refetch takes a few seconds.
+    const drop = (path) => {
+      const entry = cache.get(key);
+      if (entry?.result.status !== "success") return;
+      const keep = (w) => w.path !== path;
+      cacheSet(key, { at: 0, result: { ...entry.result, items: entry.result.items.filter(keep), merged: entry.result.merged.filter(keep) } });
+    };
     const removed = [];
     const skipped = [];
-    const removedPaths = new Set();
+    // Each row shows a spinner until its worktree is removed or skipped.
+    for (const w of job.items) removing.add(w.path);
+    cx.notify();
     for (const w of job.items) {
-      const tabsInside = new Set(panes().filter((p) => inside(p.cwd, w.path)).map((p) => p.tab));
-      for (const space of spaces().filter((sp) => inside(sp.folder, w.path) || (sp.tabs ?? []).some((tab) => tabsInside.has(tab.id)))) {
-        run("space.close", { id: space.id, confirmed: true });
+      try {
+        const tabsInside = new Set(panes().filter((p) => inside(p.cwd, w.path)).map((p) => p.tab));
+        for (const space of spaces().filter((sp) => inside(sp.folder, w.path) || (sp.tabs ?? []).some((tab) => tabsInside.has(tab.id)))) {
+          run("space.close", { id: space.id, confirmed: true });
+        }
+        const result = await removeWorktree({ main: job.main, path: w.path, branch: w.branch, machine: job.machine });
+        if (result.status === "removed") drop(w.path);
+        (result.status === "removed" ? removed : skipped).push(worktreeName(w).key);
+      } finally {
+        removing.delete(w.path);
+        cx.notify();
       }
-      const result = await removeWorktree({ main: job.main, path: w.path, branch: w.branch, machine: job.machine });
-      if (result.status === "removed") removedPaths.add(w.path);
-      (result.status === "removed" ? removed : skipped).push(worktreeName(w).key);
     }
     notify({
       title: removed.length ? `Cleaned up ${removed.join(", ")}` : "Nothing cleaned up",
       body: skipped.length ? `Skipped (uncommitted changes): ${skipped.join(", ")}` : undefined,
       level: skipped.length ? "warning" : "success",
     });
-    // Drop the removed ones from the list now; the refetch takes a few seconds.
-    const key = `wt|${job.repoId}`;
     const entry = cache.get(key);
-    if (entry?.result.status === "success") {
-      const keep = (w) => !removedPaths.has(w.path);
-      cacheSet(key, { at: 0, result: { ...entry.result, items: entry.result.items.filter(keep), merged: entry.result.merged.filter(keep) } });
-    }
+    if (entry) cacheSet(key, { ...entry, at: 0 });
     cx.notify();
   }
+
 
   // A newly shown tab selects its row: a hub tab is named "<label> <skill>", else the
   // space's branch matches the row's. Only on a change, so j/k keep their pick meanwhile.
