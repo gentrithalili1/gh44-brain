@@ -866,10 +866,13 @@ export default class Hub extends View {
       cx.notify();
     };
     const handleToggle = (cx) => { this.isMergedOpen = !this.isMergedOpen; cx.notify(); };
-    const button = ({ id, label, isPrimary, onClick }) => div().id(id).flex_none().h(24).px(10).flex().items_center().rounded(6)
-      .text_size(12).font_semibold().cursor_pointer()
-      .when(isPrimary, (el) => el.bg(done).text_color(t.solid_foreground ?? t.background).hover((s) => s.bg(done + "e6")))
-      .when(!isPrimary, (el) => el.bg(t.raised).border(1).border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
+    const rose = t.blocked ?? t.accent;
+    // Header and rows share columns: chevron 12 · icon 15 · text · 88px button · 24px close.
+    // Buttons share one width and right edge, so they line up.
+    const button = ({ id, label, variant, onClick }) => div().id(id).flex_none().w(88).h(24).flex().items_center().justify_center()
+      .rounded(6).text_size(12).font_semibold().cursor_pointer()
+      .when(variant === "primary", (el) => el.bg(done).text_color(t.solid_foreground ?? t.background).hover((s) => s.bg(done + "e6")))
+      .when(variant === "danger", (el) => el.bg(rose + "1f").border(1).border_color(rose + "59").text_color(rose).hover((s) => s.bg(rose + "33")))
       .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
       .child(label);
     // One 36px line, open or closed, so nothing moves on expand.
@@ -880,20 +883,22 @@ export default class Hub extends View {
       .child(svg(icon("branch")).size(15).flex_none().text_color(done))
       .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_semibold().text_color(t.foreground)
         .child(`${count} worktree${count === 1 ? " is" : "s are"} merged`))
-      .child(button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", isPrimary: true, onClick: () => this.openCleanup(merged) }))
+      .child(button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", variant: "primary", onClick: () => this.openCleanup(merged) }))
       .child(div().id("wt-merged-dismiss").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
         .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Hide until another worktree merges")
         .on_click((_e, cx) => { cx.stop_propagation(); handleDismiss(cx); })
         .child(svg(icon("x")).size(13)));
     const row = (w) => {
       const { key, title } = worktreeName(w);
-      return h_flex().id(`wt-merged-${w.path}`).px(10).py(5).gap(8).items_center().border_t(1).border_color(done + "40")
-        .child(v_flex().flex_1().min_w(0).pl(43)
-          .child(h_flex().min_w(0).gap(6)
-            .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(key))
-            .child(div().truncate().text_size(12.5).text_color(t.muted).child(title)))
-          .child(div().text_size(11).text_color(t.dim).child(`#${w.pr} merged`)))
-        .child(button({ id: `wt-remove-${w.path}`, label: "Remove", isPrimary: false, onClick: () => this.openCleanup([w]) }));
+      return h_flex().id(`wt-merged-${w.path}`).h(34).px(10).gap(8).items_center().border_t(1).border_color(done + "40")
+        .child(div().flex_none().w(12))
+        .child(svg(icon("branch")).size(15).flex_none().text_color(t.dim))
+        .child(h_flex().flex_1().min_w(0).gap(6).items_center().text_size(12.5)
+          .child(div().flex_none().font_semibold().text_color(t.foreground).child(key))
+          .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(title))
+          .child(div().flex_none().text_size(11.5).text_color(t.dim).child(`#${w.pr}`)))
+        .child(button({ id: `wt-remove-${w.path}`, label: "Remove", variant: "danger", onClick: () => this.openCleanup([w]) }))
+        .child(div().flex_none().w(24));
     };
     return [v_flex().id("wt-merged").flex_none().mx(GUTTER - 4).mt(8).rounded(8).overflow_hidden()
       .bg(done + "1f").border(1).border_color(done + "59")
