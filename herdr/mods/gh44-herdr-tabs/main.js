@@ -1,6 +1,19 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, exec, nextCommand } from "herdr";
+
+// How often spaces without a known repo are looked up; idle once all are known.
+const REPO_LOOKUP_MS = 300;
+
+const PANEL_BY_COMMAND = { files: "files", changes: "changes", work: "hub" };
+
+// Shows one side panel tab (files, changes, hub), or hides the panel when that tab is already shown.
+function togglePanel(id) {
+  const root = layout();
+  const panel = find(root, "panel"), body = find(root, "panel-body");
+  if (panel && !panel.hidden && body?.active === id) run("layout.hide", { id: "panel" });
+  else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+}
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -28,8 +41,22 @@ function label(tab, lead) {
 }
 
 export default class Tabs extends View {
-  init() {
+  init(_props, cx) {
     this.pressed = null;
+    // folder -> where a space there keeps its panel choice: the repo's shared git dir, the same
+    // for the main checkout and every worktree, else the folder. Missing while being looked up.
+    this.panelKeys = new Map();
+    this.lookingUp = new Set();
+    cx.timer.every(REPO_LOOKUP_MS, (cx) => this.lookUpRepos(cx));
+    // `gh44-herdr-tabs.files` / `.changes` / `.work` in keys.json (cmd-2/3/4): toggle that panel tab.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const command = await nextCommand();
+        const id = PANEL_BY_COMMAND[command];
+        if (id) togglePanel(id);
+        cx.notify();
+      }
+    });
     this.scroll = ScrollHandle.new();
     try { this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}"); } catch { this.panels = {}; }
     if (!this.panels || typeof this.panels !== "object" || Array.isArray(this.panels)) this.panels = {};
@@ -59,16 +86,58 @@ export default class Tabs extends View {
     run(e.delta.y > 0 ? "tab.prev" : "tab.next");
   }
 
-  // The side panel is remembered per space: switching shows that space's choice
-  // (closed if it never had one), and opening or closing it records it.
+  // Where a space works: its shown tab's terminals, else any of its terminals, else its folder.
+  // A space made at home whose terminals cd into a repo belongs to that repo.
+  workFolder(space) {
+    const tabIds = new Set((space.tabs ?? []).map((tab) => tab.id));
+    const activeTab = (space.tabs ?? []).find((tab) => tab.active)?.id;
+    const terminals = panes().filter((p) => tabIds.has(p.tab) && p.cwd);
+    return terminals.find((p) => p.tab === activeTab)?.cwd ?? terminals[0]?.cwd ?? space.folder ?? "";
+  }
+
+  panelKey(space) {
+    return this.panelKeys.get(`${space.machine ?? ""}:${this.workFolder(space)}`);
+  }
+
+  lookUpRepos(cx) {
+    for (const space of spaces()) {
+      const folder = this.workFolder(space);
+      const id = `${space.machine ?? ""}:${folder}`;
+      if (this.panelKeys.has(id) || this.lookingUp.has(id)) continue;
+      this.lookingUp.add(id);
+      cx.spawn(async (cx) => {
+        let key = `folder:${id}`;
+        try {
+          const r = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: folder || undefined, on: space.machine ?? undefined });
+          const dir = r.code === 0 ? r.stdout.trim() : "";
+          if (dir) key = `repo:${space.machine ?? ""}:${dir}`;
+        } catch {
+          // Not a repo, or the machine is away: the folder keeps its own choice.
+        }
+        this.lookingUp.delete(id);
+        this.panelKeys.set(id, key);
+        cx.notify();
+      });
+    }
+  }
+
+  // The side panel is remembered per repo (main checkout and worktrees together), else per folder:
+  // switching shows that choice (closed if it never had one), and opening or closing it records it.
   syncPanel(space, panel, body, enabled) {
     if (!space || !panel) return;
+    const key = this.panelKey(space);
+    if (key === undefined) return;
     const now = panel.hidden ? null : body?.active ?? null;
     if (space.id !== this.space) {
       const first = this.space === undefined;
-      this.space = space.id; this.pending = null;
-      if (!(first && !(space.id in this.panels))) {
-        const stored = this.panels[space.id] ?? null, want = enabled.includes(stored) ? stored : null;
+      const lastKey = this.lastKey;
+      this.space = space.id; this.lastKey = key; this.pending = null;
+      // Another space of the same repo: the panel stays as it is.
+      if (key === lastKey) return;
+      // A choice saved per space before panels were kept per repo still counts.
+      const saved = key in this.panels ? this.panels[key] : this.panels[space.id];
+      if (!(first && saved === undefined)) {
+        const stored = saved ?? null, want = enabled.includes(stored) ? stored : null;
         if (want !== now) {
           this.pending = { want, until: Date.now() + 1000 };
           if (want) { run("layout.select", { stack: "panel-body", child: want }); run("layout.show", { id: "panel" }); }
@@ -82,8 +151,8 @@ export default class Tabs extends View {
       if (this.pending.want !== now && Date.now() < this.pending.until) return;
       this.pending = null;
     }
-    if (this.panels[space.id] === now) return;
-    this.panels[space.id] = now;
+    if (this.panels[key] === now) return;
+    this.panels[key] = now;
     localStorage.setItem("panels", JSON.stringify(this.panels));
   }
 
@@ -136,10 +205,7 @@ export default class Tabs extends View {
       return h_flex().id(`panel-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => {
-          if (on) run("layout.hide", { id: "panel" });
-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
-        }).child(svg(icon).size(14)).child(label);
+        .on_click(() => togglePanel(id)).child(svg(icon).size(14)).child(label);
     };
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
@@ -151,8 +217,8 @@ export default class Tabs extends View {
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
       .child(panelButton("hub", "Work", "mods/hub/icons/hub.svg"))
-      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
-        .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
+      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/gh44-herdr-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
+        .child(button("maximize", w.platform === "windows" ? svg(`mods/gh44-herdr-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+        .child(button("close-window", w.platform === "windows" ? svg("mods/gh44-herdr-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
   }
 }

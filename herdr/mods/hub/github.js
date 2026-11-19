@@ -12,10 +12,10 @@ const SEARCH_QUERY = `query($q: String!, $first: Int!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
-        number title url isDraft createdAt additions deletions reviewDecision headRefName
+        number title url isDraft createdAt additions deletions reviewDecision headRefName mergeable
         author { login }
         assignees(first: 5) { nodes { login } }
-        labels(first: 5) { nodes { name } }
+        labels(first: 5) { nodes { name color } }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name combinedSlug } } } }
         latestReviews(first: 10) { nodes { author { login } } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -37,7 +37,10 @@ const toPullRequest = (pr) => {
     assignees: (pr.assignees?.nodes ?? []).map((a) => a.login),
     branch: pr.headRefName,
     isDraft: pr.isDraft,
+    hasConflicts: pr.mergeable === "CONFLICTING",
     labels: (pr.labels?.nodes ?? []).map((l) => l.name),
+    // GitHub gives a label's color as hex without the "#".
+    labelColors: Object.fromEntries((pr.labels?.nodes ?? []).map((l) => [l.name, `#${l.color}`])),
     ci: CI_BY_ROLLUP[pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",
     requestedUsers: requested.filter((r) => r.login).map((r) => r.login),
     requestedTeams: requested.filter((r) => r.combinedSlug).map((r) => ({ value: r.combinedSlug, label: r.name })),
@@ -66,8 +69,15 @@ export async function loadRepoId({ folder, machine }) {
   }
 }
 
+// owner/name from a GitHub remote URL: git@github.com:o/n.git or https://github.com/o/n.
+const GITHUB_REMOTE = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/;
+
+// The origin remote answers locally in ~20ms; `gh repo view` (a network call, ~0.8s) only when it is not GitHub.
 export async function loadRepoName({ folder, machine }) {
   try {
+    const remote = await exec("git", ["remote", "get-url", "origin"], { cwd: folder, on: machine });
+    const match = remote.code === 0 ? remote.stdout.trim().match(GITHUB_REMOTE) : null;
+    if (match) return match[1];
     const r = await exec("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { cwd: folder, on: machine });
     return r.code === 0 ? r.stdout.trim() : null;
   } catch {
@@ -80,6 +90,25 @@ export async function loadRepoLabels({ folder, machine }) {
   try {
     const r = await exec("gh", ["label", "list", "--limit", "200", "--json", "name", "--jq", ".[].name"], { cwd: folder, on: machine });
     return r.code === 0 ? r.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+// People who can be assigned in the repo, for the Author filter: [{ login, name }].
+// The PRs on one page carry only a few authors, and only their logins.
+const REPO_USERS_QUERY = "query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { assignableUsers(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { login name } } } }";
+
+export async function loadRepoUsers({ repo, machine }) {
+  const [owner, name] = repo.split("/");
+  try {
+    const r = await exec("gh", ["api", "graphql", "--paginate", "-f", `query=${REPO_USERS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`,
+      "--jq", ".data.repository.assignableUsers.nodes[] | [.login, .name // \"\"] | @tsv"], { on: machine, timeout: GH_TIMEOUT_MS });
+    if (r.code !== 0) return [];
+    return r.stdout.split("\n").filter(Boolean).map((line) => {
+      const [login, fullName = ""] = line.split("\t");
+      return { login, name: fullName.trim() };
+    });
   } catch {
     return [];
   }

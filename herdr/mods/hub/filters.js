@@ -1,7 +1,7 @@
 // Pure filtering and grouping for the hub panel. No herdr or UI imports.
 
 export const GITHUB_DEFAULTS = { scope: "review", authors: [], labels: [], teams: [], reviews: "any", assignees: [], checks: "any", sort: "newest" };
-export const LINEAR_DEFAULTS = { mine: true, teams: [], projects: [], statuses: [], priorities: [], labels: [], assignees: [] };
+export const LINEAR_DEFAULTS = { mine: true, teams: [], projects: [], statuses: [], priorities: [], labels: [], assignees: [], sort: "priority" };
 
 // The same views as GitHub's pull request sidebar.
 export const GITHUB_SCOPES = [
@@ -29,6 +29,15 @@ export const SORT_OPTIONS = [
   { value: "updated", label: "Recently updated" },
   { value: "stale", label: "Least recently updated" },
   { value: "comments", label: "Most commented" },
+];
+
+// Order inside each status group of Linear tickets.
+export const LINEAR_SORT_OPTIONS = [
+  { value: "priority", label: "Priority" },
+  { value: "updated", label: "Recently updated" },
+  { value: "stale", label: "Least recently updated" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
 ];
 
 export const NO_ASSIGNEE = "__none__";
@@ -78,9 +87,46 @@ export function getMyReviewState({ pr, login }) {
   return pr.requestedUsers.includes(login) ? "rereview" : "reviewed";
 }
 
+// Whose move a PR is, in list order: mine first, then what others ask of me, drafts last.
+export const PULL_REQUEST_GROUPS = [
+  { id: "fix", label: "Needs fixing", tone: "danger" },
+  { id: "merge", label: "Ready to merge", tone: "success" },
+  { id: "rereview", label: "Review again", tone: "warning" },
+  { id: "review", label: "To review", tone: "warning" },
+  { id: "waiting", label: "Waiting on others", tone: "quiet" },
+  { id: "reviewed", label: "Already reviewed", tone: "neutral" },
+  { id: "draft", label: "Drafts", tone: "neutral" },
+];
+
+const isMyPullRequest = ({ pr, login }) => Boolean(login) && pr.author === login;
+
+export function getPullRequestGroup({ pr, login }) {
+  if (pr.isDraft) return "draft";
+  if (isMyPullRequest({ pr, login })) {
+    if (pr.hasConflicts || pr.ci === "failing" || pr.decision === "CHANGES_REQUESTED") return "fix";
+    // Only an approval counts: GitHub gives no decision (null) for some PRs that still need one.
+    if (pr.decision === "APPROVED" && pr.ci !== "pending") return "merge";
+    return "waiting";
+  }
+  const review = getMyReviewState({ pr, login });
+  if (review === "rereview") return "rereview";
+  if (review === "reviewed") return "reviewed";
+  return "review";
+}
+
+// Groups in PULL_REQUEST_GROUPS order, each keeping the search's order; empty groups left out.
+export function groupPullRequests({ items, login }) {
+  const byGroup = new Map();
+  for (const pr of items) {
+    const id = getPullRequestGroup({ pr, login });
+    byGroup.set(id, [...(byGroup.get(id) ?? []), pr]);
+  }
+  return PULL_REQUEST_GROUPS.filter((g) => byGroup.has(g.id)).map((g) => ({ ...g, items: byGroup.get(g.id) }));
+}
+
 // Only "already reviewed" is filtered here; everything else is in the search query.
-export function filterPullRequests({ items, filters, login, isShowingReviewed }) {
-  const hidesReviewed = isReviewScope(filters.scope) && !isShowingReviewed;
+export function filterPullRequests({ items, filters, login, isShowingReviewed, search = "" }) {
+  const hidesReviewed = isReviewScope(filters.scope) && !isShowingReviewed && !isGithubQuery(search);
   return items.filter((pr) => !(hidesReviewed && getMyReviewState({ pr, login }) === "reviewed"));
 }
 
@@ -107,7 +153,25 @@ const quote = (value) => `"${String(value).replace(/"/g, "")}"`;
 
 // GitHub advanced search for the filters. Picked authors or teams match any of them,
 // label:"a","b" matches either label. Newest first.
+// A search with a GitHub qualifier ("is:pr review-requested:me") is a query pasted from GitHub.
+const QUALIFIER = /^-?[a-z-]+:\S/i;
+export const isGithubQuery = (search) => search.trim().split(/\s+/).some((w) => QUALIFIER.test(w));
+
+// A pasted query runs as GitHub would run it, in the shown repo unless it names one;
+// the panel's scope and filters stay out of it.
+function buildPastedQuery({ repo, search }) {
+  const query = search.trim();
+  const has = (pattern) => pattern.test(query);
+  return [
+    has(/(^|\s)repo:|(^|\s)org:|(^|\s)user:/) ? null : `repo:${repo}`,
+    has(/(^|\s)(is|type):(pr|issue)\b/) ? null : "is:pr",
+    query,
+    has(/(^|\s)sort:/) ? null : SORT_TERM.newest,
+  ].filter(Boolean).join(" ");
+}
+
 export function buildPullRequestQuery({ repo, filters, search }) {
+  if (isGithubQuery(search)) return buildPastedQuery({ repo, search });
   const words = search.trim().split(/\s+/).filter(Boolean).map((w) => w.replace(/^#(\d+)$/, "$1").replace(/"/g, ""));
   return [
     `repo:${repo}`, "is:pr", "is:open",
@@ -139,19 +203,41 @@ const typeRank = (type) => {
   return i === -1 ? STATE_TYPE_ORDER.length : i;
 };
 
-// [{ state, type, items }], in-progress groups first, each sorted by priority.
-export function groupIssuesByState(items) {
+// ISO dates compare as strings; ties keep the most recently updated first.
+const byDate = (field, direction) => (a, b) => direction * String(a[field] ?? "").localeCompare(String(b[field] ?? ""));
+const byUpdated = byDate("updatedAt", -1);
+const ISSUE_ORDER = {
+  priority: (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || byUpdated(a, b),
+  updated: byUpdated,
+  stale: byDate("updatedAt", 1),
+  newest: (a, b) => byDate("createdAt", -1)(a, b) || byUpdated(a, b),
+  oldest: (a, b) => byDate("createdAt", 1)(a, b) || byUpdated(a, b),
+};
+
+// [{ state, type, items }], in-progress groups first, each in the picked order (priority by default).
+export function groupIssuesByState(items, sort = "priority") {
   const groups = new Map();
   for (const issue of items) {
     if (!groups.has(issue.state)) groups.set(issue.state, { state: issue.state, type: issue.stateType, items: [] });
     groups.get(issue.state).items.push(issue);
   }
   const sorted = [...groups.values()].sort((a, b) => typeRank(a.type) - typeRank(b.type) || a.state.localeCompare(b.state));
-  for (const g of sorted) g.items.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  const order = ISSUE_ORDER[sort] ?? ISSUE_ORDER.priority;
+  for (const g of sorted) g.items.sort(order);
   return sorted;
 }
 
 // Sorted unique values as menu options.
+// Author options: the repo's people plus any author or pick not among them. The label holds
+// the name too, so the filter search finds "Arrastia" as well as the login.
+export function getAuthorOptions({ users, logins }) {
+  const names = new Map(users.map((u) => [u.login, u.name]));
+  for (const login of logins) if (login && !names.has(login)) names.set(login, "");
+  return [...names.entries()]
+    .map(([login, name]) => ({ value: login, label: name ? `${name} (${login})` : login }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function toOptions(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((v) => ({ value: v, label: v }));
 }

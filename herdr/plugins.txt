@@ -2,4 +2,3 @@
 # One per line: <github owner/repo> <mod name prefix>
 # install.sh runs https://raw.githubusercontent.com/<repo>/main/install.sh with --app.
 # The prefix tells sync.sh which mod folders belong to the plugin.
-ChmaraX/herdr-gitview gitview
