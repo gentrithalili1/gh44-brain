@@ -29,7 +29,7 @@
               "id": "spaces",
               "type": "block",
               "content": {
-                "mod": "spaces"
+                "mod": "better-sidebar"
               },
               "size": {
                 "weight": 1
