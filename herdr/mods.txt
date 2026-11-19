@@ -1,5 +1,7 @@
-# Third-party Herdr mods without an installer, copied from GitHub's main branch by install.sh.
-# One per line: <github owner/repo> <mod folder in the repo> <mod name>
+# Third-party Herdr mods without an installer, copied from GitHub by install.sh.
+# One per line: <github owner/repo> <mod folder in the repo> <mod name> [branch, default main]
 sangit0/herdr-code-review mods/tabbed-changes tabbed-changes
 dmazlum/herdr-revive mods/revive revive
 chrisggraham/herdr-folders mods/herdr-folders herdr-folders
+llehouerou/herdr-space-groups mods/space-groups space-groups master
+llehouerou/herdr-space-groups mods/space-groups-menu space-groups-menu master

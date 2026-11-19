@@ -7,6 +7,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 LAYOUT=gh44-herdr
+EXTRA_LAYOUTS="gh44-herdr-groups"
 # Mods install.sh builds itself, so they need no recording.
 BUILT_MODS="gh44-files"
 
@@ -17,9 +18,10 @@ copy_without_home() {
 
 mkdir -p "$HERE/layouts"
 copy_without_home "$APP_HOME/layouts/$LAYOUT.json" "$HERE/layouts/$LAYOUT.json"
+for extra in $EXTRA_LAYOUTS; do copy_without_home "$APP_HOME/layouts/$extra.json" "$HERE/layouts/$extra.json"; done
 copy_without_home "$APP_HOME/keys.json" "$HERE/keys.json"
 copy_without_home "$APP_HOME/settings.json" "$HERE/settings.json"
-echo "synced: layouts/$LAYOUT.json keys.json settings.json"
+echo "synced: layouts/$LAYOUT.json $EXTRA_LAYOUTS keys.json settings.json"
 
 shipped=$(jq -r 'keys[]' "$APP_HOME/installed.json")
 prefixes=$(awk '!/^[[:space:]]*#/ && NF { print $2 }' "$HERE/plugins.txt")

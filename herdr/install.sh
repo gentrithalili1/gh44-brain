@@ -8,6 +8,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 THEME_REPO="$HERE/../../gh44-theme"
 LAYOUT=gh44-herdr
+# Other layouts, kept beside the main one; ctrl-shift-l switches to them.
+EXTRA_LAYOUTS="gh44-herdr-groups"
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 die() { echo "herdr: $*" >&2; exit 1; }
@@ -66,9 +68,9 @@ fi
 herdr-app check "$FILES_MOD" > /dev/null || die "herdr-app check failed for gh44-files"
 
 # 2c. Third-party mods without an installer (mods.txt), copied fresh from GitHub on every run.
-awk '!/^[[:space:]]*#/ && NF' "$HERE/mods.txt" | while read -r repo path name; do
+awk '!/^[[:space:]]*#/ && NF' "$HERE/mods.txt" | while read -r repo path name branch; do
   tmp=$(mktemp -d)
-  curl -fsSL "https://codeload.github.com/$repo/tar.gz/main" | tar -xz -C "$tmp" || die "could not download $repo"
+  curl -fsSL "https://codeload.github.com/$repo/tar.gz/${branch:-main}" | tar -xz -C "$tmp" || die "could not download $repo"
   source=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d)/$path
   [ -d "$source" ] || die "$repo has no $path"
   rm -rf "${APP_HOME:?}/mods/$name"
@@ -98,6 +100,7 @@ place_with_home() {
 place_with_home "$HERE/keys.json" "$APP_HOME/keys.json"
 place_with_home "$HERE/settings.json" "$APP_HOME/settings.json"
 place_with_home "$HERE/layouts/$LAYOUT.json" "$APP_HOME/layouts/$LAYOUT.json"
+for extra in $EXTRA_LAYOUTS; do place_with_home "$HERE/layouts/$extra.json" "$APP_HOME/layouts/$extra.json"; done
 herdr-app do layout.switch "{\"name\":\"$LAYOUT\"}" > /dev/null
 echo "layout: $LAYOUT"
 
