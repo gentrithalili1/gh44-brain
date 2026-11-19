@@ -5,6 +5,14 @@
     "cmd-alt-h": "app.hide_others",
     "cmd-m": "window.minimize",
     "cmd-t": "tab.new",
+    "cmd-shift-t": {
+      "command": "tab.new",
+      "args": {
+        "argv": [
+          "claude"
+        ]
+      }
+    },
     "cmd-w": "tab.close",
     "ctrl-tab": "tab.next",
     "ctrl-shift-tab": "tab.prev",
