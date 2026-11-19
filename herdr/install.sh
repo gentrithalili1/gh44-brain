@@ -66,7 +66,7 @@ fi
 herdr-app check "$FILES_MOD" > /dev/null || die "herdr-app check failed for gh44-files"
 
 # 2c. Third-party mods without an installer (mods.txt), copied fresh from GitHub on every run.
-grep -v '^\s*#' "$HERE/mods.txt" | awk 'NF' | while read -r repo path name; do
+awk '!/^[[:space:]]*#/ && NF' "$HERE/mods.txt" | while read -r repo path name; do
   tmp=$(mktemp -d)
   curl -fsSL "https://codeload.github.com/$repo/tar.gz/main" | tar -xz -C "$tmp" || die "could not download $repo"
   source=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d)/$path
@@ -86,7 +86,7 @@ herdr-app do layout.switch "{\"name\":\"$LAYOUT\"}" > /dev/null
 echo "layout: $LAYOUT"
 
 # 4. Plugins. Their installers patch the layout on screen, which is now gh44-herdr.
-grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $1 }' | while read -r repo; do
+awk '!/^[[:space:]]*#/ && NF { print $1 }' "$HERE/plugins.txt" | while read -r repo; do
   echo "plugin: $repo"
   curl -fsSL "https://raw.githubusercontent.com/$repo/main/install.sh" | sh -s -- --app
 done

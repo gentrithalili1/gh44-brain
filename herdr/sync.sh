@@ -17,8 +17,8 @@ cp "$APP_HOME/settings.json" "$HERE/settings.json"
 echo "synced: layouts/$LAYOUT.json keys.json settings.json"
 
 shipped=$(jq -r 'keys[]' "$APP_HOME/installed.json")
-prefixes=$(grep -v '^\s*#' "$HERE/plugins.txt" | awk 'NF { print $2 }')
-copied=$(grep -v '^\s*#' "$HERE/mods.txt" | awk 'NF { print $3 }')
+prefixes=$(awk '!/^[[:space:]]*#/ && NF { print $2 }' "$HERE/plugins.txt")
+copied=$(awk '!/^[[:space:]]*#/ && NF { print $3 }' "$HERE/mods.txt")
 unknown=()
 for dir in "$APP_HOME"/mods/*/; do
   name=$(basename "$dir")
