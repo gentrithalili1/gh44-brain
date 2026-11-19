@@ -1,9 +1,17 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, exec } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, exec, nextCommand } from "herdr";
 
 // How often spaces without a known repo are looked up; idle once all are known.
 const REPO_LOOKUP_MS = 300;
+
+// Shows one side panel tab (files, changes, hub), or hides the panel when that tab is already shown.
+function togglePanel(id) {
+  const root = layout();
+  const panel = find(root, "panel"), body = find(root, "panel-body");
+  if (panel && !panel.hidden && body?.active === id) run("layout.hide", { id: "panel" });
+  else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+}
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -38,6 +46,14 @@ export default class Tabs extends View {
     this.panelKeys = new Map();
     this.lookingUp = new Set();
     cx.timer.every(REPO_LOOKUP_MS, (cx) => this.lookUpRepos(cx));
+    // `my-tabs.work` in keys.json (cmd-2): toggle the Work panel.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const command = await nextCommand();
+        if (command === "work") togglePanel("hub");
+        cx.notify();
+      }
+    });
     this.scroll = ScrollHandle.new();
     try { this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}"); } catch { this.panels = {}; }
     if (!this.panels || typeof this.panels !== "object" || Array.isArray(this.panels)) this.panels = {};
@@ -186,10 +202,7 @@ export default class Tabs extends View {
       return h_flex().id(`panel-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => {
-          if (on) run("layout.hide", { id: "panel" });
-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
-        }).child(svg(icon).size(14)).child(label);
+        .on_click(() => togglePanel(id)).child(svg(icon).size(14)).child(label);
     };
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
