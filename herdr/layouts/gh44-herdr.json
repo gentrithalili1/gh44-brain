@@ -29,7 +29,7 @@
               "id": "spaces",
               "type": "block",
               "content": {
-                "mod": "herdr-folders"
+                "mod": "spaces"
               },
               "size": {
                 "weight": 1
