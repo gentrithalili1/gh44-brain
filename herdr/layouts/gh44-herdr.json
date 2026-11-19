@@ -79,7 +79,7 @@
           "id": "tabs",
           "type": "block",
           "content": {
-            "mod": "my-tabs"
+            "mod": "gh44-herdr-tabs"
           },
           "size": {
             "px": 42

@@ -5,6 +5,8 @@ import { spaces, panes, run, openOverlay, theme, window, shared, layout, setting
 // How often spaces without a known repo are looked up; idle once all are known.
 const REPO_LOOKUP_MS = 300;
 
+const PANEL_BY_COMMAND = { files: "files", changes: "changes", work: "hub" };
+
 // Shows one side panel tab (files, changes, hub), or hides the panel when that tab is already shown.
 function togglePanel(id) {
   const root = layout();
@@ -46,11 +48,12 @@ export default class Tabs extends View {
     this.panelKeys = new Map();
     this.lookingUp = new Set();
     cx.timer.every(REPO_LOOKUP_MS, (cx) => this.lookUpRepos(cx));
-    // `my-tabs.work` in keys.json (cmd-2): toggle the Work panel.
+    // `gh44-herdr-tabs.files` / `.changes` / `.work` in keys.json (cmd-2/3/4): toggle that panel tab.
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
-        if (command === "work") togglePanel("hub");
+        const id = PANEL_BY_COMMAND[command];
+        if (id) togglePanel(id);
         cx.notify();
       }
     });
@@ -214,8 +217,8 @@ export default class Tabs extends View {
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
       .child(panelButton("hub", "Work", "mods/hub/icons/hub.svg"))
-      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
-        .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
+      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/gh44-herdr-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
+        .child(button("maximize", w.platform === "windows" ? svg(`mods/gh44-herdr-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+        .child(button("close-window", w.platform === "windows" ? svg("mods/gh44-herdr-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
   }
 }
