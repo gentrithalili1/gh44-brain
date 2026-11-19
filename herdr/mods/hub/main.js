@@ -150,6 +150,8 @@ const removing = new Set();
 // A skill picked in a popup; the panel runs it (`hub.start`), since a closed popup's
 // async work (creating a worktree) would be cancelled.
 let pendingStart = null;
+// Labels of items whose new worktree is being prepared (fetch, branch): their button shows a spinner.
+const preparing = new Set();
 const session = { login: null, meta: { status: "idle", teams: [], projects: [] } };
 
 const getFilters = (store) => {
@@ -252,7 +254,7 @@ function startTicketSkill({ skill, menu }) {
     openMenu({ ...menu, askSkill: skill });
     return;
   }
-  startSkill({ skill, target: menu.target, isWorktree: Boolean(menu.target.worktree) });
+  void startSkill({ skill, target: menu.target, isWorktree: Boolean(menu.target.worktree) });
 }
 
 export default class Hub extends View {
@@ -318,7 +320,17 @@ export default class Hub extends View {
         if (command === "start" && pendingStart) {
           const start = pendingStart;
           pendingStart = null;
-          startSkill(start);
+          // Its own task, so the command loop keeps going while the branch is prepared.
+          cx.spawn(async (cx) => {
+            preparing.add(start.target.label);
+            cx.notify();
+            try {
+              await startSkill(start);
+            } finally {
+              preparing.delete(start.target.label);
+              cx.notify();
+            }
+          });
         }
         cx.notify();
       }
@@ -630,6 +642,13 @@ export default class Hub extends View {
     return div().size(7).mx(2).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
   }
 
+  primaryMark(primary) {
+    const t = theme();
+    if (primary.isLoading) return svg("mods/workspace-chrome/spinner.svg").size(11).flex_none().text_color(t.working).spin(900);
+    if (primary.agentStatus) return this.agentMark(primary.agentStatus);
+    return svg(icon(primary.icon)).size(11).text_color(t.accent);
+  }
+
   // [▶ plan | ▾]: the main part runs the row's next step, the chevron picks another.
   splitButton({ id, primary, menu, isOnSelected = false }) {
     const t = theme();
@@ -638,7 +657,7 @@ export default class Hub extends View {
       .child(h_flex().id(`${id}-run`).h_full().pl(7).pr(8).gap(5).items_center().rounded_l(6).cursor_pointer()
         .text_color(t.foreground).hover((s) => s.bg(hoverBg)).tooltip(primary.tip)
         .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); primary.run(cx); })
-        .child(primary.agentStatus ? this.agentMark(primary.agentStatus) : svg(icon(primary.icon)).size(11).text_color(t.accent))
+        .child(this.primaryMark(primary))
         .child(primary.label)
         .when(Boolean(primary.worktreeBadge), (el) => el.child(div().px(4).rounded(4).bg(t.selected).text_color(t.accent).text_size(10.5).child(primary.worktreeBadge))))
       .child(div().w(1).h(14).bg(t.border))
@@ -829,6 +848,7 @@ export default class Hub extends View {
 
   // An agent already on it: open it. Else resume a space on its branch, else start the next skill.
   primaryFor({ agent, branch, skill, target, isWorktree, isBackground = false, start = null, canAsk = false }) {
+    if (preparing.has(target.label)) return { label: "preparing", icon: "branch", isLoading: true, tip: `Preparing the ${target.label} worktree`, run: () => {} };
     if (agent) return { label: "open", icon: "resume", agentStatus: agent.status, tip: `Go to ${agent.tab_name} (${AGENT_STATUS[agent.status]?.label ?? agent.status})`, run: () => focusAgent(agent) };
     const space = findSpaceOnBranch(branch);
     if (space) return { label: "resume", icon: "resume", tip: `Go to ${space.name}`, run: () => run("space.select", { id: space.id }) };
@@ -838,7 +858,7 @@ export default class Hub extends View {
       // Shown on the button, so it is clear before clicking that a worktree is involved.
       worktreeBadge: isWorktree ? "worktree" : null,
       tip: isWorktree ? worktreeTip : canAsk ? `/${skill}: asks first, new worktree or this space` : isBackground ? `/${skill} in a background tab` : `/${skill} in a new tab here`,
-      run: start ?? (() => startSkill({ skill, target, isWorktree, isBackground })),
+      run: start ?? (() => void startSkill({ skill, target, isWorktree, isBackground })),
     };
   }
 
@@ -1012,7 +1032,7 @@ export default class Hub extends View {
       chips: this.pullRequestChips({ pr, group }),
       menu: { skills: GITHUB_SKILLS, target, isBackground: true, links: [{ id: "github", label: "Open in GitHub", icon: "github", url: pr.url }] },
     });
-    return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => startSkill({ skill: s, target, isBackground: true }) };
+    return { id: pr.id, url: pr.url, element, primary: primary.run, start: (s) => void startSkill({ skill: s, target, isBackground: true }) };
   }
 
   // PR · author and age · review status · conflicts · checks · size · labels

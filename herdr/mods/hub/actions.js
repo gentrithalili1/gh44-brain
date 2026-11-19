@@ -63,7 +63,8 @@ export function getDefaultGithubSkill({ pr, login }) {
 //   branch?, folder?, main? (the repo's main checkout), worktree? (an existing checkout of the branch),
 //   space? (a space already open on the branch), issue? (the Linear issue, for its status) }
 // isBackground: open the tab without switching to it (reviews). isWorktree: in the ticket's worktree.
-export function startSkill({ skill, target, isWorktree = false, isBackground = false }) {
+// Resolves once a new worktree's branch is ready and its dialog is open.
+export async function startSkill({ skill, target, isWorktree = false, isBackground = false }) {
   const ref = PR_SKILLS.includes(skill) && target.prRef ? target.prRef : target.ref;
   const prompt = `/${skill} ${ref}`;
   const name = `${target.label} ${shortSkill(skill)}`;
@@ -75,7 +76,7 @@ export function startSkill({ skill, target, isWorktree = false, isBackground = f
   }
   // An existing worktree needs no main checkout; a new one is made from it.
   if (isWorktree && (target.worktree || (target.branch && target.main))) {
-    void startInWorktree({ target, name, prompt });
+    await startInWorktree({ target, name, prompt });
     return;
   }
   run("tab.new", { name, space: space?.id, argv: ["claude", prompt], focus: !isBackground, ...(target.folder ? { folder: target.folder } : {}) });
