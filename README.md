@@ -246,38 +246,7 @@ gh44/
 
 ## With Herdr
 
-If you use the [Herdr app](https://herdr.dev), `herdr/install.sh` sets up a layout where the workflow runs from a **Work panel**: your Linear tickets and GitHub PRs, each with a button that starts the next skill in its own Claude tab.
-
-```text
-┌───────────────┬──────────────────────────────────┬──────────────────────────────┐
-│ Spaces        │ THU-123 plan │ #456 review │ +   │ GitHub 5 │ Linear 4          │
-│  frontend     ├──────────────────────────────────┤ Show ▾ │ Search…  │ Filters │
-│   thu-123-…   │                                  │ ● In Progress                │
-│  e2e          │  Claude Code                     │   THU-123 Add export         │
-│               │  /gh44-implement THU-123         │   high · Jobs   [implement ▾]│
-│ Agents        │                                  │ ● Todo                       │
-│  ◌ THU-123 …  │  (the skill runs here, in the    │   THU-130 Fix filter         │
-│  ○ #456 rev…  │   ticket's worktree)             │   medium        [plan ▾]     │
-│               │                                  │                              │
-└───────────────┴──────────────────────────────────┴──────────────────────────────┘
-```
-
-| Row | Main button | What happens |
-| --- | --- | --- |
-| Linear ticket in Backlog / Todo | `plan` | Asks: new worktree or this space, then runs `/gh44-plan <ticket>` in a new tab and moves the ticket to In Progress |
-| Linear ticket in progress | `implement` | `/gh44-implement <ticket>` in the ticket's worktree (asks where when it has none), and moves the ticket to In Progress |
-| Linear ticket in review, or my PR | `address-review` | `/gh44-address-review <pr>` |
-| My PR with conflicts | `resolve-conflicts` | `/gh44-resolve-conflicts <pr>` |
-| Someone else's PR | `code-review` | `/gh44-code-review <pr>` in a background tab |
-| A row with an agent on it | `open` | Jumps to that agent's tab; the button shows its status |
-
-- **▾ on a row** lists every skill (`clarify`, `plan`, `implement`, `address-review`, …) and links to Linear or GitHub. Keys on a selected row: Linear `c` clarify, `p` plan, `i` implement; GitHub `r` review, `a` address, `c` conflicts; both `o` open.
-- **PRs are grouped by whose move it is**: Needs fixing, Ready to merge, To review, Waiting on others, Drafts. Linear tickets are grouped by status, with a sort inside each group.
-- **The shown tab selects its row**, so you always see which ticket or PR the agent in front of you is on.
-- **Switching repos is instant**: the PR lists of every repo with an open space load in the background.
-- **Merged worktrees**: a note at the top offers to clean them up, spaces and branches included.
-
-Setup, the other mods and how to record changes: [`herdr/README.md`](herdr/README.md).
+If you use the [Herdr app](https://herdr.dev), [gh44-herdr](https://github.com/gentrithalili1/gh44-herdr) sets up a layout where the workflow runs from a **Work panel**: your Linear tickets and GitHub PRs, each with a button that starts the next skill in its own Claude tab.
 
 <br>
 <br>
