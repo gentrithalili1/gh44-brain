@@ -13,7 +13,7 @@ const ISSUES_QUERY = `query($filter: IssueFilter, $first: Int) {
       project { id name }
       assignee { name isMe }
       labels { nodes { name color } }
-      attachments(first: 10) { nodes { url } }
+      attachments(first: 10) { nodes { url creator { isMe } metadata } }
     }
   }
 }`;
@@ -24,6 +24,22 @@ const META_QUERY = `query {
     nodes { id name teams { nodes { id } } }
   }
 }`;
+
+const PULL_REQUEST_URL = /github\.com\/.+\/pull\/\d+/;
+const CLOSED_PULL_REQUEST = ["merged", "closed"];
+
+// The issue's PR: the newest open one, else the newest. Mine when its Linear creator
+// (the PR author's linked account) is me; without a creator, when the issue is mine.
+/** @typedef {{ url: string, creator: { isMe: boolean } | null, metadata: { createdAt?: string, status?: string } | null }} Attachment */
+/** @param {{ attachments: Attachment[], isAssignedToMe: boolean }} params */
+function toPullRequest({ attachments, isAssignedToMe }) {
+  const prs = attachments
+    .filter((a) => PULL_REQUEST_URL.test(a.url))
+    .sort((a, b) => String(b.metadata?.createdAt ?? "").localeCompare(String(a.metadata?.createdAt ?? "")));
+  const pr = prs.find((a) => !CLOSED_PULL_REQUEST.includes(a.metadata?.status)) ?? prs[0];
+  if (!pr) return { prUrl: null, isMyPullRequest: isAssignedToMe };
+  return { prUrl: pr.url, isMyPullRequest: pr.creator ? Boolean(pr.creator.isMe) : isAssignedToMe };
+}
 
 const toIssue = (n) => ({
   id: n.id,
@@ -42,8 +58,7 @@ const toIssue = (n) => ({
   assignee: n.assignee?.name ?? null,
   labels: (n.labels?.nodes ?? []).map((l) => l.name),
   labelColors: Object.fromEntries((n.labels?.nodes ?? []).map((l) => [l.name, l.color])),
-  // The newest GitHub PR attached to the issue, if any.
-  prUrl: (n.attachments?.nodes ?? []).map((a) => a.url).filter((u) => /github\.com\/.+\/pull\/\d+/.test(u)).at(-1) ?? null,
+  ...toPullRequest({ attachments: n.attachments?.nodes ?? [], isAssignedToMe: Boolean(n.assignee?.isMe) }),
 });
 
 async function request({ query, variables }) {

@@ -16,7 +16,7 @@ import {
 } from "./github.js";
 import { loadIssues, loadLinearMeta } from "./linear.js";
 import {
-  LINEAR_SKILLS, GITHUB_SKILLS, shortSkill, getDefaultGithubSkill, getDefaultLinearSkill, getIssueStage,
+  GITHUB_SKILLS, shortSkill, getDefaultGithubSkill, getDefaultLinearSkill, getLinearSkills, getIssueStage,
   findSpaceOnBranch, findAgentFor, focusAgent, startSkill,
 } from "./actions.js";
 
@@ -69,7 +69,7 @@ const HOUR_MS = 3_600_000;
 // Keys on a selected row that start a skill directly.
 const KEY_SKILLS = {
   github: { r: "gh44-code-review", a: "gh44-address-review", c: "gh44-resolve-conflicts" },
-  linear: { c: "gh44-clarify", p: "gh44-plan", i: "gh44-implement", a: "gh44-address-review" },
+  linear: { c: "gh44-clarify", p: "gh44-plan", i: "gh44-implement", a: "gh44-address-review", r: "gh44-code-review" },
 };
 const KEY_HINTS = {
   github: "j/k move · ↵ run · r review · a address · c conflicts · o open · / search",
@@ -246,7 +246,7 @@ function openMenu(menu) {
 
 // A ticket without a worktree asks where its run goes: a new worktree or this space.
 // Address-review works on an existing PR or local branch, so it never asks.
-const NEVER_ASK_SKILLS = ["gh44-address-review"];
+const NEVER_ASK_SKILLS = ["gh44-address-review", "gh44-code-review"];
 const shouldAskWhere = ({ skill, target }) => !NEVER_ASK_SKILLS.includes(skill) && Boolean(target.main && target.branch && !target.worktree);
 
 function startTicketSkill({ skill, menu }) {
@@ -1153,7 +1153,8 @@ export default class Hub extends View {
       ...(worktree ? { worktree } : {}), ...(space ? { space: space.id } : {}),
     };
     const agent = findAgentFor({ label: issue.identifier, branch: issue.branch });
-    const menu = { skills: LINEAR_SKILLS, target, isTicket: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] };
+    const skills = getLinearSkills(issue);
+    const menu = { skills, target, isTicket: true, links: [{ id: "linear", label: "Open in Linear", icon: "linear", url: issue.url }] };
     const primary = this.primaryFor({ agent, branch: issue.branch, skill, target, isWorktree: Boolean(worktree), canAsk: shouldAskWhere({ skill, target }), start: () => startTicketSkill({ skill, menu }) });
     const priority = PRIORITY_OPTIONS.find((p) => p.value === issue.priority);
     const id = issue.identifier;
@@ -1170,7 +1171,8 @@ export default class Hub extends View {
         ],
       menu,
     });
-    return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => startTicketSkill({ skill: s, menu }) };
+    // A key for a skill this ticket's menu leaves out (address-review on someone else's PR) does nothing.
+    return { id: issue.id, url: issue.url, element, primary: primary.run, start: (s) => { if (skills.includes(s)) startTicketSkill({ skill: s, menu }); } };
   }
 
   linearView() {
