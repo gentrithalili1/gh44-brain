@@ -24,7 +24,7 @@
     "cmd-[": "agent.prev",
     "cmd-shift-l": "layout.switch",
     "cmd-n": "space.new",
-    "cmd-shift-n": { "command": "space.new", "args": { "folder": "/Users/gentrithalili" } },
+    "cmd-shift-n": { "command": "space.new", "args": { "folder": "$HOME" } },
     "cmd-p": "mod.open:picker",
     "cmd-shift-p": "app.palette",
     "cmd-,": "app.settings",

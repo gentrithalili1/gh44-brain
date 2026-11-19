@@ -78,10 +78,18 @@ awk '!/^[[:space:]]*#/ && NF' "$HERE/mods.txt" | while read -r repo path name; d
   echo "mod: $name from $repo"
 done
 
-# 3. Keys, settings and the layout.
-place "$HERE/keys.json" "$APP_HOME/keys.json"
-place "$HERE/settings.json" "$APP_HOME/settings.json"
-place "$HERE/layouts/$LAYOUT.json" "$APP_HOME/layouts/$LAYOUT.json"
+# 3. Keys, settings and the layout. They write the home folder as $HOME (Herdr does not
+# expand ~ or $HOME), so it is filled in here.
+place_with_home() {
+  local tmp
+  tmp=$(mktemp)
+  sed "s#\$HOME#$HOME#g" "$1" > "$tmp"
+  place "$tmp" "$2"
+  rm "$tmp"
+}
+place_with_home "$HERE/keys.json" "$APP_HOME/keys.json"
+place_with_home "$HERE/settings.json" "$APP_HOME/settings.json"
+place_with_home "$HERE/layouts/$LAYOUT.json" "$APP_HOME/layouts/$LAYOUT.json"
 herdr-app do layout.switch "{\"name\":\"$LAYOUT\"}" > /dev/null
 echo "layout: $LAYOUT"
 
