@@ -872,14 +872,16 @@ export default class Hub extends View {
       .when(!isPrimary, (el) => el.bg(t.raised).border(1).border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
       .child(label);
-    const head = h_flex().id("wt-merged-head").px(10).py(8).gap(10).items_center().cursor_pointer()
+    // Top-aligned on one 24px line, so nothing moves when the summary line hides on expand.
+    const line = (child) => h_flex().flex_none().h(24).items_center().child(child);
+    const head = h_flex().id("wt-merged-head").px(10).py(6).gap(8).items_start().cursor_pointer()
       .tooltip(this.isMergedOpen ? "Hide the list" : "Show each worktree")
       .on_click((_e, cx) => handleToggle(cx))
-      .child(svg(icon(this.isMergedOpen ? "chevron" : "chevron-right")).size(12).flex_none().text_color(done))
-      .child(svg(icon("branch")).size(15).flex_none().text_color(done))
-      .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(`${count} worktree${count === 1 ? " is" : "s are"} merged`))
-        .when(!this.isMergedOpen, (el) => el.child(div().truncate().text_size(11.5).text_color(t.muted)
+      .child(line(svg(icon(this.isMergedOpen ? "chevron" : "chevron-right")).size(12).text_color(done)))
+      .child(line(svg(icon("branch")).size(15).text_color(done)))
+      .child(v_flex().flex_1().min_w(0)
+        .child(line(div().text_size(12.5).font_semibold().text_color(t.foreground).child(`${count} worktree${count === 1 ? " is" : "s are"} merged`)))
+        .when(!this.isMergedOpen, (el) => el.child(div().truncate().mt(-3).text_size(11.5).text_color(t.muted)
           .child(merged.map((w) => `${worktreeName(w).key} (#${w.pr})`).join(", ")))))
       .child(button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", isPrimary: true, onClick: () => this.openCleanup(merged) }))
       .child(div().id("wt-merged-dismiss").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
@@ -888,8 +890,8 @@ export default class Hub extends View {
         .child(svg(icon("x")).size(13)));
     const row = (w) => {
       const { key, title } = worktreeName(w);
-      return h_flex().id(`wt-merged-${w.path}`).px(10).py(7).gap(10).items_center().border_t(1).border_color(done + "40")
-        .child(v_flex().flex_1().min_w(0).gap(1).pl(37)
+      return h_flex().id(`wt-merged-${w.path}`).px(10).py(5).gap(8).items_center().border_t(1).border_color(done + "40")
+        .child(v_flex().flex_1().min_w(0).pl(43)
           .child(h_flex().min_w(0).gap(6)
             .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(key))
             .child(div().truncate().text_size(12.5).text_color(t.muted).child(title)))
