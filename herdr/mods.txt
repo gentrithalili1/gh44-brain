@@ -1,3 +1,4 @@
 # Third-party Herdr mods without an installer, copied from GitHub's main branch by install.sh.
 # One per line: <github owner/repo> <mod folder in the repo> <mod name>
 sangit0/herdr-code-review mods/tabbed-changes tabbed-changes
+dmazlum/herdr-revive mods/revive revive
