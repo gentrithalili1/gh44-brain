@@ -10,10 +10,15 @@ LAYOUT=gh44-herdr
 # Mods install.sh builds itself, so they need no recording.
 BUILT_MODS="gh44-files"
 
+# The home folder is recorded as $HOME, so the setup works for any user; install.sh fills it in.
+copy_without_home() {
+  sed -E "s#$HOME([/\"])#\$HOME\1#g" "$1" > "$2"
+}
+
 mkdir -p "$HERE/layouts"
-cp "$APP_HOME/layouts/$LAYOUT.json" "$HERE/layouts/$LAYOUT.json"
-cp "$APP_HOME/keys.json" "$HERE/keys.json"
-cp "$APP_HOME/settings.json" "$HERE/settings.json"
+copy_without_home "$APP_HOME/layouts/$LAYOUT.json" "$HERE/layouts/$LAYOUT.json"
+copy_without_home "$APP_HOME/keys.json" "$HERE/keys.json"
+copy_without_home "$APP_HOME/settings.json" "$HERE/settings.json"
 echo "synced: layouts/$LAYOUT.json keys.json settings.json"
 
 shipped=$(jq -r 'keys[]' "$APP_HOME/installed.json")

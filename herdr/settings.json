@@ -3,14 +3,14 @@
   "sounds": {
     "enabled": true
   },
-  "font_size": 14,
+  "font": "Lilex",
+  "font_size": 12,
   "font_weight": 400,
   "font_ligatures": false,
   "terminal_line_height": 1,
   "terminal_cell_width": 1,
   "terminal_scroll_speed": 1,
-  "minimum_contrast": 1,
-  "appearance": "dark",
   "ui_font": "IBM Plex Sans",
-  "font": "Lilex"
+  "minimum_contrast": 1,
+  "appearance": "dark"
 }
