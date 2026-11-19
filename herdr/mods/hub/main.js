@@ -28,6 +28,8 @@ const STORE = {
   github: "hub.github.filters",
   linear: "hub.linear.filters",
   collapsed: "hub.collapsed",
+  // Merged worktree paths whose notice was closed with ✕.
+  dismissedMerged: "hub.dismissedMerged",
 };
 // GitHub filters are kept per repo ("hub.github.filters|<repo id>"); Linear's are shared.
 const isGithubStore = (store) => store.startsWith(STORE.github);
@@ -158,6 +160,13 @@ const getFilters = (store) => {
 };
 const patchFilters = ({ store, patch }) => setShared(store, { ...getFilters(store), ...patch });
 // Group ids ("pr-fix", "ln-In Progress") whose rows are hidden; kept across reloads.
+// "thu-4696-fe-2-remove-ff_jobs" -> { key: "THU-4696", title: "fe 2 remove ff_jobs" }; else the folder name.
+const worktreeName = (w) => {
+  const folder = w.path.split("/").pop();
+  const match = folder.match(/^([a-z]+-\d+)-?(.*)$/i);
+  return match ? { key: match[1].toUpperCase(), title: match[2].replace(/-/g, " ") } : { key: folder, title: "" };
+};
+
 const isCollapsed = (id) => (shared(STORE.collapsed) ?? []).includes(id);
 const toggleCollapsed = (id) => {
   const ids = shared(STORE.collapsed) ?? [];
@@ -840,23 +849,71 @@ export default class Hub extends View {
     return this.repoId?.endsWith("/.git") ? this.repoId.slice(0, -"/.git".length) : null;
   }
 
-  // "2 merged worktrees: THU-1, THU-2 · Clean up", at the top of both lists.
+  // Merged worktrees, at the top of both lists: a banner with Clean up all and ✕, which expands
+  // to one row per worktree with its own Remove. ✕ hides it until another worktree merges.
   cleanupNote() {
+    const t = theme();
+    // Alpha suffixes below need a 6-digit hex; every shipped theme has one for done.
+    const done = t.done ?? t.accent;
     const merged = cache.get(`wt|${this.repoId}`)?.result.merged ?? [];
-    if (merged.length === 0) return [];
-    const names = merged.map((w) => w.path.split("/").pop());
-    const handleOpen = () => {
-      pendingCleanup = { main: this.repoMain(), machine: activeMachine(), items: merged };
-      openOverlay({
-        mod: "confirm", kind: "dialog", width: 460, height: 230,
-        props: {
-          title: `Clean up ${merged.length} merged worktree${merged.length === 1 ? "" : "s"}?`,
-          detail: `${merged.map((w) => `${w.path.split("/").pop()} (PR #${w.pr})`).join(", ")}.\n\nCloses their spaces, removes the worktrees and deletes the local branches. A worktree with uncommitted changes is skipped.`,
-          command: { name: "hub.cleanup" },
-        },
-      });
+    const saved = shared(STORE.dismissedMerged);
+    const dismissed = new Set(Array.isArray(saved) ? saved : []);
+    if (merged.length === 0 || merged.every((w) => dismissed.has(w.path))) return [];
+    const count = merged.length;
+    const handleDismiss = (cx) => {
+      // Only paths still merged are kept, so the list stays short.
+      setShared(STORE.dismissedMerged, merged.map((w) => w.path));
+      cx.notify();
     };
-    return [this.note({ id: "wt-merged", text: `${merged.length} merged worktree${merged.length === 1 ? "" : "s"}: ${names.join(", ")}`, action: { label: "Clean up", onClick: handleOpen } })];
+    const handleToggle = (cx) => { this.isMergedOpen = !this.isMergedOpen; cx.notify(); };
+    const button = ({ id, label, isPrimary, onClick }) => div().id(id).flex_none().h(24).px(10).flex().items_center().rounded(6)
+      .text_size(12).font_semibold().cursor_pointer()
+      .when(isPrimary, (el) => el.bg(done).text_color(t.solid_foreground ?? t.background).hover((s) => s.bg(done + "e6")))
+      .when(!isPrimary, (el) => el.bg(t.raised).border(1).border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+      .child(label);
+    const head = h_flex().id("wt-merged-head").px(10).py(8).gap(10).items_center().cursor_pointer()
+      .tooltip(this.isMergedOpen ? "Hide the list" : "Show each worktree")
+      .on_click((_e, cx) => handleToggle(cx))
+      .child(svg(icon(this.isMergedOpen ? "chevron" : "chevron-right")).size(12).flex_none().text_color(done))
+      .child(svg(icon("branch")).size(15).flex_none().text_color(done))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(`${count} worktree${count === 1 ? " is" : "s are"} merged`))
+        .when(!this.isMergedOpen, (el) => el.child(div().truncate().text_size(11.5).text_color(t.muted)
+          .child(merged.map((w) => `${worktreeName(w).key} (#${w.pr})`).join(", ")))))
+      .child(button({ id: "wt-merged-all", label: count === 1 ? "Clean up" : "Clean up all", isPrimary: true, onClick: () => this.openCleanup(merged) }))
+      .child(div().id("wt-merged-dismiss").flex_none().size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
+        .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Hide until another worktree merges")
+        .on_click((_e, cx) => { cx.stop_propagation(); handleDismiss(cx); })
+        .child(svg(icon("x")).size(13)));
+    const row = (w) => {
+      const { key, title } = worktreeName(w);
+      return h_flex().id(`wt-merged-${w.path}`).px(10).py(7).gap(10).items_center().border_t(1).border_color(done + "40")
+        .child(v_flex().flex_1().min_w(0).gap(1).pl(37)
+          .child(h_flex().min_w(0).gap(6)
+            .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(key))
+            .child(div().truncate().text_size(12.5).text_color(t.muted).child(title)))
+          .child(div().text_size(11).text_color(t.dim).child(`#${w.pr} merged`)))
+        .child(button({ id: `wt-remove-${w.path}`, label: "Remove", isPrimary: false, onClick: () => this.openCleanup([w]) }));
+    };
+    return [v_flex().id("wt-merged").flex_none().mx(GUTTER - 4).mt(8).rounded(8).overflow_hidden()
+      .bg(done + "1f").border(1).border_color(done + "59")
+      .child(head)
+      .when(Boolean(this.isMergedOpen), (el) => el.children(merged.map(row)))];
+  }
+
+  // The confirm dialog for removing some merged worktrees; its confirm runs `hub.cleanup`.
+  openCleanup(items) {
+    pendingCleanup = { main: this.repoMain(), machine: activeMachine(), items };
+    const names = items.map((w) => `${worktreeName(w).key} (PR #${w.pr})`).join(", ");
+    openOverlay({
+      mod: "confirm", kind: "dialog", width: 460, height: 230,
+      props: {
+        title: items.length === 1 ? `Remove ${worktreeName(items[0]).key}?` : `Clean up ${items.length} merged worktrees?`,
+        detail: `${names}.\n\nCloses their spaces, removes the worktree${items.length === 1 ? "" : "s"} and deletes the local branch${items.length === 1 ? "" : "es"}. A worktree with uncommitted changes is skipped.`,
+        command: { name: "hub.cleanup" },
+      },
+    });
   }
 
   // Close each merged worktree's spaces, then remove the worktree and its branch.
