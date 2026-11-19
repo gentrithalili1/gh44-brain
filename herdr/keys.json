@@ -40,7 +40,7 @@
     "cmd-+": "app.zoom_in",
     "cmd--": "app.zoom_out",
     "cmd-0": "app.zoom_reset",
-    "cmd-1": "tab.select:1",
+    "cmd-1": "layout.toggle:sidebar",
     "cmd-2": "tab.select:2",
     "cmd-3": "tab.select:3",
     "cmd-4": "tab.select:4",
