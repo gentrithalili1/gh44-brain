@@ -9,7 +9,7 @@ APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 THEME_REPO="$HERE/../../gh44-theme"
 LAYOUT=gh44-herdr
 # Other layouts, kept beside the main one; ctrl-shift-l switches to them.
-EXTRA_LAYOUTS="gh44-herdr-groups"
+EXTRA_LAYOUTS=""
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 die() { echo "herdr: $*" >&2; exit 1; }
