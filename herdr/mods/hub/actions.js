@@ -2,7 +2,7 @@
 import { run, spaces, agents, appHome, notify, openOverlay, exec } from "herdr";
 import { moveIssueToInProgress } from "./linear.js";
 
-export const LINEAR_SKILLS = ["gh44-clarify", "gh44-plan", "gh44-implement", "gh44-address-review"];
+const LINEAR_SKILLS = ["gh44-clarify", "gh44-plan", "gh44-implement", "gh44-address-review"];
 export const GITHUB_SKILLS = ["gh44-code-review", "gh44-address-review", "gh44-resolve-conflicts"];
 const PR_SKILLS = ["gh44-code-review", "gh44-address-review", "gh44-resolve-conflicts"];
 
@@ -14,9 +14,23 @@ export function getIssueStage(issue) {
 }
 
 const STAGE_SKILL = { backlog: "gh44-plan", todo: "gh44-plan", progress: "gh44-implement", review: "gh44-address-review" };
+const ADDRESS_REVIEW = "gh44-address-review";
+const CODE_REVIEW = "gh44-code-review";
 
-// The next step for a ticket follows its status.
-export const getDefaultLinearSkill = (issue) => STAGE_SKILL[getIssueStage(issue)];
+// The next step for a ticket follows its status. Someone else's PR in review gets a review, not addressed.
+/** @param {{ stateType: string, state: string, isMyPullRequest: boolean }} issue */
+export function getDefaultLinearSkill(issue) {
+  const skill = STAGE_SKILL[getIssueStage(issue)];
+  return skill === ADDRESS_REVIEW && !issue.isMyPullRequest ? CODE_REVIEW : skill;
+}
+
+// A ticket's skill menu: address-review only on my own PR, code-review on someone else's.
+/** @param {{ isMyPullRequest: boolean, prUrl: string | null }} issue */
+export function getLinearSkills(issue) {
+  if (issue.isMyPullRequest) return LINEAR_SKILLS;
+  const skills = LINEAR_SKILLS.filter((s) => s !== ADDRESS_REVIEW);
+  return issue.prUrl ? [...skills, CODE_REVIEW] : skills;
+}
 
 // Starting work on a ticket that is not started yet moves it to In Progress.
 const WORK_SKILLS = ["gh44-plan", "gh44-implement"];
