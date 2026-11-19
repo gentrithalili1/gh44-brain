@@ -78,6 +78,14 @@ awk '!/^[[:space:]]*#/ && NF' "$HERE/mods.txt" | while read -r repo path name; d
   echo "mod: $name from $repo"
 done
 
+# 2d. Revive remembers agent sessions through hooks in Claude, Codex and the shell's rc file.
+# Its install is safe to run again.
+if [ -f "$APP_HOME/mods/revive/revive.mjs" ]; then
+  command -v node > /dev/null || die "node is missing; Revive needs it for its hooks"
+  node "$APP_HOME/mods/revive/revive.mjs" install > /dev/null || die "revive: hook install failed"
+  echo "revive: hooks installed"
+fi
+
 # 3. Keys, settings and the layout. They write the home folder as $HOME (Herdr does not
 # expand ~ or $HOME), so it is filled in here.
 place_with_home() {
