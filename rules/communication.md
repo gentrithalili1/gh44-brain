@@ -11,3 +11,4 @@
 - Say what something does, with names or numbers, not how it feels. Active voice, one idea per sentence.
 - No praise or chatbot phrases ("Great question", "I hope this helps").
 - Text others read (PR bodies, Linear, Slack, docs): no em dashes, no decorative emojis, sentence-case headings. My review comments keep their emojis.
+- READMEs and docs: no first person ("my setup", "I use"). Describe the project.
