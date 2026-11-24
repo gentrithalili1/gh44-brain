@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.png" alt="gh44-brain: claude code, my way"></p>
+
 # gh44-brain
 
 **Gentrit's personal agent brain for Claude Code.**
