@@ -246,7 +246,7 @@ gh44/
 
 ## With Herdr
 
-If you use the [Herdr app](https://herdr.dev), [gh44-herdr](https://github.com/gentrithalili1/gh44-herdr) sets up a layout where the workflow runs from a **Work panel**: your Linear tickets and GitHub PRs, each with a button that starts the next skill in its own Claude tab.
+If you use the [Herdr app](https://herdr.dev), [gh44-omnia](https://github.com/gentrithalili1/gh44-omnia) sets up a layout where the workflow runs from a **Work panel**: your Linear tickets and GitHub PRs, each with a button that starts the next skill in its own Claude tab.
 
 <br>
 <br>
