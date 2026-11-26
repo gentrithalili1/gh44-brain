@@ -13,6 +13,20 @@ INBOX_MARKER="<!-- items below -->"
 STEPS=4
 changes=0
 
+windows=false
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    windows=true
+    # Git Bash rewrites path-like arguments (/hooks/x.sh) for native programs, so jq gets them as written;
+    # only the trailing file argument is turned into a C:/ path jq.exe can open.
+    jq() {
+      local args=("$@")
+      [ "$#" -gt 0 ] && [ -f "${args[$# - 1]}" ] && args[$# - 1]="$(cygpath -m "${args[$# - 1]}")"
+      MSYS2_ARG_CONV_EXCL='*' command jq "${args[@]}"
+    }
+    ;;
+esac
+
 case "${1:-}" in
   "") remove_repo=false ;;
   "$REMOVE_REPO_FLAG") remove_repo=true ;;
@@ -62,6 +76,17 @@ for link in "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/rules" "$CLAUDE_DIR"/skills/* "
     "$BRAIN/CLAUDE.md" | "$BRAIN/rules" | "$BRAIN"/skills/* | "$BRAIN"/agents/*) rm "$link" && unlinked=$((unlinked + 1)) ;;
   esac
 done
+# On Windows without symlinks, install.sh hard-links files and lists them here.
+HARDLINKS="$CLAUDE_DIR/.gh44-brain-hardlinks"
+if [ -f "$HARDLINKS" ]; then
+  while IFS= read -r file; do
+    if [ -f "$file" ] && [ ! -L "$file" ]; then
+      rm "$file"
+      unlinked=$((unlinked + 1))
+    fi
+  done < "$HARDLINKS"
+  rm "$HARDLINKS"
+fi
 changes=$((changes + unlinked))
 ok "$unlinked removed"
 
@@ -71,6 +96,8 @@ if [ -f "$SETTINGS" ]; then
   commands=()
   for script in "$BRAIN"/hooks/*.sh; do
     commands+=("$(printf '%q' "$script")")
+    # install.sh writes C:/ paths on Windows.
+    [ "$windows" = true ] && commands+=("$(printf '%q' "$(cygpath -m "$script")")")
   done
   commands_json="$(printf '%s\n' "${commands[@]}" | jq -R . | jq -s .)"
   removed="$(jq --argjson ours "$commands_json" \

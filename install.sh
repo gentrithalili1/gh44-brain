@@ -10,6 +10,42 @@ SKILLS_CLI="skills@1.7.2"
 STEPS=5
 changes=0
 
+# Git Bash copies on `ln -s` by default; ask for real Windows symlinks so the brain stays linked.
+windows=false
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    windows=true
+    export MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict
+    # Git Bash rewrites path-like arguments (/hooks/x.sh) for native programs, so jq gets them as written;
+    # only the trailing file argument is turned into a C:/ path jq.exe can open.
+    jq() {
+      local args=("$@")
+      [ "$#" -gt 0 ] && [ -f "${args[$# - 1]}" ] && args[$# - 1]="$(cygpath -m "${args[$# - 1]}")"
+      MSYS2_ARG_CONV_EXCL='*' command jq "${args[@]}"
+    }
+    ;;
+esac
+# hook_command SCRIPT: the settings.json command for a hook, a C:/ path on Windows.
+hook_command() {
+  if [ "$windows" = true ]; then
+    printf '%q' "$(cygpath -m "$BRAIN/hooks/$1")"
+  else
+    printf '%q' "$BRAIN/hooks/$1"
+  fi
+}
+# Without Developer Mode or admin, Windows blocks symlinks: folders get junctions and files hard links instead.
+# Hard links look like real files, so they are listed here for later runs and uninstall.sh.
+HARDLINKS="$CLAUDE_DIR/.gh44-brain-hardlinks"
+is_hardlink() { [ "$windows" = true ] && [ -f "$HARDLINKS" ] && grep -Fxq -- "$1" "$HARDLINKS"; }
+# linked_to TARGET SOURCE: TARGET already points at SOURCE.
+linked_to() {
+  if [ -L "$1" ]; then
+    [ "$(readlink "$1")" = "$2" ]
+  else
+    is_hardlink "$1" && [ "$1" -ef "$2" ]
+  fi
+}
+
 if [ -t 1 ]; then
   bold=$'\033[1m' dim=$'\033[2m' green=$'\033[32m' red=$'\033[31m' reset=$'\033[0m'
 else
@@ -27,20 +63,41 @@ missing=()
 for tool in jq; do
   command -v "$tool" > /dev/null || missing+=("$tool")
 done
-if [ "${#missing[@]}" -gt 0 ]; then
-  if ! command -v brew > /dev/null; then
+if [ "${#missing[@]}" -eq 0 ]; then
+  ok "jq"
+elif [ "$windows" = true ]; then
+  if ! command -v winget > /dev/null; then
     failed "missing ${missing[*]}"
-    echo "install: missing ${missing[*]}. Install Homebrew (https://brew.sh) and run this again, or install them yourself." >&2
+    echo "install: missing ${missing[*]} and winget. Install jq (https://jqlang.org/download) and run this again." >&2
     exit 1
   fi
+  winget install --exact --id jqlang.jq --silent --accept-source-agreements --accept-package-agreements > /dev/null 2>&1 || true
+  # winget puts jq on the user PATH for new terminals; add that PATH for this run too.
+  user_path="$(powershell.exe -NoProfile -Command '[Environment]::GetEnvironmentVariable("Path", "User")' | tr -d '\r')"
+  PATH="$PATH:$(cygpath -p "$user_path")"
+  if ! command -v jq > /dev/null; then
+    failed "could not install ${missing[*]}"
+    echo "install: \`winget install jqlang.jq\` failed. Install jq yourself, open a new terminal and run this again." >&2
+    exit 1
+  fi
+  ok "installed ${missing[*]}"
+  changes=$((changes + 1))
+elif ! command -v brew > /dev/null; then
+  failed "missing ${missing[*]}"
+  echo "install: missing ${missing[*]}. Install Homebrew (https://brew.sh) and run this again, or install them yourself." >&2
+  exit 1
+else
   brew install "${missing[@]}" > /dev/null
   ok "installed ${missing[*]}"
   changes=$((changes + 1))
-else
-  ok "jq"
 fi
 
 step 2 Lint
+if [ "$windows" = true ] && [ -f "$BRAIN/lint/package.json" ] && [ ! -d "$BRAIN/lint/node_modules" ] \
+  && ! command -v pnpm > /dev/null && command -v npm > /dev/null; then
+  npm install --global pnpm > /dev/null 2>&1 || true
+  hash -r
+fi
 if [ ! -f "$BRAIN/lint/package.json" ]; then
   ok "nothing to install"
 elif [ -d "$BRAIN/lint/node_modules" ]; then
@@ -75,11 +132,13 @@ done
 conflicts=()
 for i in "${!targets[@]}"; do
   source="${sources[$i]}" target="${targets[$i]}"
+  linked_to "$target" "$source" && continue
   if [ -L "$target" ]; then
-    [ "$(readlink "$target")" = "$source" ] && continue
     [ -e "$target" ] || continue
     conflicts+=("install: $target links to $(readlink "$target"), expected $source")
   elif [ -e "$target" ]; then
+    # A hard link from an earlier run that git replaced (pull, checkout) is linked again.
+    is_hardlink "$target" && continue
     conflicts+=("install: $target is a real file or folder; move it away first")
   fi
 done
@@ -89,13 +148,32 @@ if [ "${#conflicts[@]}" -gt 0 ]; then
   exit 1
 fi
 
+# Windows only creates symlinks with Developer Mode on (or as admin); otherwise fall back to junctions and hard links.
+symlinks=true
+if [ "$windows" = true ]; then
+  probe="$(mktemp -d)"
+  { ln -s "$BRAIN" "$probe/link" 2> /dev/null && [ -L "$probe/link" ]; } || symlinks=false
+  rm -rf "$probe"
+fi
+make_link() {
+  if [ "$symlinks" = true ]; then
+    ln -s "$1" "$2"
+  elif [ -d "$1" ]; then
+    cmd //c mklink //J "$(cygpath -w "$2")" "$(cygpath -w "$1")" > /dev/null
+  else
+    ln "$1" "$2"
+  fi
+}
+
 mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents"
 linked=0
 for i in "${!targets[@]}"; do
-  target="${targets[$i]}"
-  [ -L "$target" ] && [ "$(readlink "$target")" = "${sources[$i]}" ] && continue
-  [ -L "$target" ] && rm "$target"
-  ln -s "${sources[$i]}" "$target"
+  source="${sources[$i]}" target="${targets[$i]}"
+  linked_to "$target" "$source" && continue
+  if [ -L "$target" ] || is_hardlink "$target"; then
+    rm "$target"
+  fi
+  make_link "$source" "$target"
   linked=$((linked + 1))
 done
 for link in "$CLAUDE_DIR"/skills/* "$CLAUDE_DIR"/agents/*; do
@@ -104,8 +182,35 @@ for link in "$CLAUDE_DIR"/skills/* "$CLAUDE_DIR"/agents/*; do
     "$BRAIN"/skills/* | "$BRAIN"/agents/*) rm "$link" && linked=$((linked + 1)) ;;
   esac
 done
+hardlinked=()
+if [ "$windows" = true ]; then
+  # Drop hard links whose source left the brain, then list the hard links in place now.
+  if [ -f "$HARDLINKS" ]; then
+    while IFS= read -r old; do
+      printf '%s\n' "${targets[@]}" | grep -Fxq -- "$old" && continue
+      if [ -f "$old" ] && [ ! -L "$old" ]; then
+        rm "$old"
+        linked=$((linked + 1))
+      fi
+    done < "$HARDLINKS"
+  fi
+  for i in "${!targets[@]}"; do
+    target="${targets[$i]}"
+    if [ ! -L "$target" ] && [ -f "$target" ] && [ "$target" -ef "${sources[$i]}" ]; then
+      hardlinked+=("$target")
+    fi
+  done
+  if [ "${#hardlinked[@]}" -gt 0 ]; then
+    printf '%s\n' "${hardlinked[@]}" > "$HARDLINKS"
+  else
+    rm -f "$HARDLINKS"
+  fi
+fi
 changes=$((changes + linked))
 ok "CLAUDE.md, rules, $skill_count skills, $((${#targets[@]} - 2 - skill_count)) agents$(changed "$linked")"
+if [ "${#hardlinked[@]}" -gt 0 ]; then
+  echo "install: Windows blocked symlinks, so files are hard links. Run this again after git pull, or turn on Developer Mode (Settings > System > For developers) and run it again." >&2
+fi
 
 step 4 Upstream
 upstream_total=0
@@ -164,7 +269,7 @@ fi
 added=0
 add_hook() {
   local event="$1" script="$2" matcher="${3:-}" command updated
-  command="$(printf '%q' "$BRAIN/hooks/$script")"
+  command="$(hook_command "$script")"
   if jq -e --arg command "$command" '[.. | objects | select(.command? == $command)] | length > 0' "$SETTINGS" > /dev/null; then
     return
   fi
