@@ -61,7 +61,8 @@ printf '\n%sgh44-brain%s %s· Gentrit'"'"'s personal agent brain%s\n\n' "$bold" 
 step 1 Tools
 missing=()
 for tool in jq; do
-  command -v "$tool" > /dev/null || missing+=("$tool")
+  # type -P skips the jq() wrapper, so only a real jq on PATH counts.
+  type -P "$tool" > /dev/null || missing+=("$tool")
 done
 if [ "${#missing[@]}" -eq 0 ]; then
   ok "jq"
@@ -75,7 +76,7 @@ elif [ "$windows" = true ]; then
   # winget puts jq on the user PATH for new terminals; add that PATH for this run too.
   user_path="$(powershell.exe -NoProfile -Command '[Environment]::GetEnvironmentVariable("Path", "User")' | tr -d '\r')"
   PATH="$PATH:$(cygpath -p "$user_path")"
-  if ! command -v jq > /dev/null; then
+  if ! type -P jq > /dev/null; then
     failed "could not install ${missing[*]}"
     echo "install: \`winget install jqlang.jq\` failed. Install jq yourself, open a new terminal and run this again." >&2
     exit 1
@@ -159,7 +160,7 @@ make_link() {
   if [ "$symlinks" = true ]; then
     ln -s "$1" "$2"
   elif [ -d "$1" ]; then
-    cmd //c mklink //J "$(cygpath -w "$2")" "$(cygpath -w "$1")" > /dev/null
+    "$(cygpath "${COMSPEC:-C:\Windows\System32\cmd.exe}")" //c mklink //J "$(cygpath -w "$2")" "$(cygpath -w "$1")" > /dev/null
   else
     ln "$1" "$2"
   fi
@@ -171,7 +172,7 @@ for i in "${!targets[@]}"; do
   source="${sources[$i]}" target="${targets[$i]}"
   linked_to "$target" "$source" && continue
   if [ -L "$target" ] || is_hardlink "$target"; then
-    rm "$target"
+    rm -f "$target"
   fi
   make_link "$source" "$target"
   linked=$((linked + 1))
@@ -222,7 +223,8 @@ if [ -f "$UPSTREAM" ]; then
     upstream_total=$((upstream_total + 1))
     [ "$mode" = manual ] && manual_upstream+=("$skill")
     [ -e "$CLAUDE_DIR/skills/$skill" ] || missing_upstream+=("$repo $skill")
-  done < "$UPSTREAM"
+  # Strip CR, so a CRLF checkout of the list still reads clean names.
+  done < <(tr -d '\r' < "$UPSTREAM")
 fi
 if [ "${#missing_upstream[@]}" -eq 0 ]; then
   ok "$upstream_total skills"

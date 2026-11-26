@@ -127,7 +127,7 @@ if [ -f "$UPSTREAM" ] && [ -f "$SKILL_LOCK" ]; then
     updated="$(jq --arg skill "$skill" 'del(.skills[$skill])' "$SKILL_LOCK")"
     printf '%s\n' "$updated" > "$SKILL_LOCK"
     dropped=$((dropped + 1))
-  done < "$UPSTREAM"
+  done < <(tr -d '\r' < "$UPSTREAM")
 fi
 changes=$((changes + dropped))
 ok "$dropped removed"
