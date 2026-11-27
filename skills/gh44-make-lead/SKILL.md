@@ -68,20 +68,15 @@ When I ask ("status?", "what needs me?") and after every follow-up, write this:
 
 **Next for you:** <the one thing I should do now, or "nothing, all moving">
 
-🔴 **Needs you**
-- **<title>** · `<id>` · <the question it asks me, quoted in one line> · [PR #123](url) · [THU-4890](url)
-
-🟡 **Working**
-- **<title>** · `<id>` · <what it is on now> · <links>
-
-🟢 **Done**
-- **<title>** · `<id>` · <result in one line> · <links>
-
-⚪ **Idle**
-- **<title>** · `<id>` · <why idle>
+| | Agent | Status | Now | Links |
+|---|---|---|---|---|
+| 🔴 | **<title>** `<id>` | Needs you | <the question it asks me, quoted> | [PR #123](url) · [THU-4890](url) |
+| 🟡 | **<title>** `<id>` | Working | <what it is on now> | <links> |
+| 🟢 | **<title>** `<id>` | Done | <result> | <links> |
+| ⚪ | **<title>** `<id>` | Idle | <why idle> | <links> |
 
 **Sent:** <what you sent and to whom since the last report, or "nothing">
 **Proposed:** <numbered actions waiting for my yes, or "nothing">
 ```
 
-Leave out a group with no agents. Each agent gets one line, with every link it has: PR, ticket, Sentry issue, CI run. Write plain words with names and numbers, like "2 of 5 PRs merged" and "CI red on lint".
+Write one row per agent. Sort the rows by status: Needs you, then Working, Done, Idle. Keep each cell to one short line, so the table fits a terminal. In Links, put every link the agent has: PR, ticket, Sentry issue, CI run, or "–" when it has none. Write plain words with names and numbers, like "2 of 5 PRs merged" and "CI red on lint".
