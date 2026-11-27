@@ -25,7 +25,9 @@ Your own terminal is `$HC_TERMINAL_ID`.
 Terminal labels are the only record of your team. They change without telling you, because I move agents between leads in the sidebar, so read them fresh before every report:
 
 - **You:** `omnia.role=lead` and `omnia.lead.name=<short topic>` on `$HC_TERMINAL_ID`.
-- **Your followers:** `hc ls --json --label omnia.lead=$HC_TERMINAL_ID`, then for each one `hc get <id> --json` and `hc read <id> --lines 60`.
+- **Your followers:** they can be in any space and on any machine. Collect them from every machine, then for each one run `hc get <address> --json` and `hc read <address> --lines 60`.
+  - **On your machine:** `hc ls --json --label omnia.lead=$HC_TERMINAL_ID`.
+  - **On every other machine** in `hc machine ls`: `hc exec --on <m> hc ls --json`. Keep the terminals whose `omnia.lead` is `<your machine>/$HC_TERMINAL_ID`, where your machine is `local` when you run on the main computer. Their address is `<m>/<id>`.
 
 When the sidebar starts you, it sets your labels a moment after the tab opens:
 
