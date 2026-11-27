@@ -5,3 +5,4 @@
 - On a refactor or cleanup, check every caller and importer of what you change, run the affected tests, and tell me if it is safe to push before pushing.
 - Verify before saying done: for a code change, run the `gh44-verifier` agent; otherwise the smallest check that proves it. Report the result. If you could not verify, say so.
 - Update a branch from `main` with `git merge origin/main`.
+- Main session: before starting work on a ticket, run `ListAgents` and look for a session or worktree named after it (herdr `thu-4886-…`). When one exists, send the work there with `SendMessage` and track it; that session does the work, not you.
