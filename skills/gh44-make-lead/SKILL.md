@@ -55,6 +55,17 @@ Answering a follower's question within the topic, and nudging a stuck one, are y
 - starting a new agent or adopting one;
 - anything that leaves this machine: a push, a merge, a PR comment, a Linear or Slack post.
 
+## Handing over
+
+When I ask you to hand a follower to another lead ("give THU-4890 to the frontend lead"):
+
+1. **Find the lead.** Leads carry `omnia.role=lead`: `hc ls --json --label omnia.role=lead` here, and `hc exec --on <m> hc ls --json` on each other machine. Match my words against `omnia.lead.name`. When none or several match, list them and ask.
+2. **Relabel the follower.** Set its `omnia.lead` to the new lead's address as the follower's machine sees it: the bare id when both run on the same machine, else `<machine>/<id>`, where the main computer is `local`. Use `hc label <follower address> omnia.lead=<address>`; the follower address may be `<m>/<id>`.
+3. **Tell both.** `hc send` the new lead one line: who joined, what it is on, its links. Tell the follower its new lead in one line.
+4. Drop it from your report and say what you handed over under **Sent**.
+
+Taking a follower from another lead works the same way, after my yes.
+
 ## Following up
 
 You run when I write to you or when a follower's note arrives. You never run on a timer or in a loop. When I say "watch", follow with `hc wait` on your followers until one finishes or needs me, then report.
