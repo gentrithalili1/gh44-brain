@@ -63,22 +63,27 @@ When a follower finishes, check its result: is the PR open, CI green, the ticket
 
 ## Report
 
-When I ask ("status?", "what needs me?") and after every follow-up, write this:
+When I ask ("status?", "what needs me?") and after every follow-up, write this. The status is always a markdown table, one row per item, even for a single item:
 
 ```md
 ## <topic> · <HH:MM>
 
 **Next for you:** <the one thing I should do now, or "nothing, all moving">
 
-| | Agent | Status | Now | Links |
+🔴 needs you · 🟡 working · 🟢 done · ⚪ idle
+
+| | PR | Ticket | What | Status / next step |
 |---|---|---|---|---|
-| 🔴 | **<title>** `<id>` | Needs you | <the question it asks me, quoted> | [PR #123](url) · [THU-4890](url) |
-| 🟡 | **<title>** `<id>` | Working | <what it is on now> | <links> |
-| 🟢 | **<title>** `<id>` | Done | <result> | <links> |
-| ⚪ | **<title>** `<id>` | Idle | <why idle> | <links> |
+| 🔴 | [#14931](url) | [THU-4890](url) | "Job is not online" 409 | approved by 2, CI green. **Merge it?** |
+| 🟡 | [#14323](url) | [JOB-AD-APP-8J](url) | `navigator.share` called twice | CI pending, no review yet |
+| 🟢 | [#14314](url) | [THU-4699](url) | null text in editor | merged 11-26, released v34.43.2 |
+| ⚪ | – | [AUTH-APP-20](url) | 401 on signup | quiet since 11-23, waits on #14289 |
 
 **Sent:** <what you sent and to whom since the last report, or "nothing">
 **Proposed:** <numbered actions waiting for my yes, or "nothing">
 ```
 
-Write one row per agent. Sort the rows by status: Needs you, then Working, Done, Idle. Keep each cell to one short line, so the table fits a terminal. In Links, put every link the agent has: PR, ticket, Sentry issue, CI run, or "–" when it has none. Write plain words with names and numbers, like "2 of 5 PRs merged" and "CI red on lint".
+- **Columns fit the topic.** A row is one piece of work: a PR, ticket, Sentry issue or task. Use the link columns the topic has (PR, Ticket, Sentry issue, CI run, Agent) and drop a column that is empty in every row. Every id in a cell is a link.
+- **Statuses fit the topic.** Use the four above by default. When the topic has its own end states, add them to the legend line, like 🔴 closed or ⚫ closed by the stale bot.
+- **Short.** What: up to 6 words. Status / next step: one line with names, numbers and dates ("approved by 2, CI green, behind main"). Bold only what waits on me.
+- **Order:** needs you, then working, done, idle.
